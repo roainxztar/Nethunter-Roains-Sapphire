@@ -33,6 +33,10 @@ jobs:
         run: |
           git clone --depth=1 --branch android13-5.15-lts https://github.com/ChicKernel/device_xiaomi_gemstones-kernel.git kernel
           test "$(make -s -C kernel kernelversion)" = "5.15.189"
+          # ChicKernel sources drivers/kernelsu/Kconfig unconditionally.
+          # Keep the Kconfig include resolvable without adding any root manager.
+          mkdir -p kernel/drivers/kernelsu
+          printf "%s\\n" "# KernelSU intentionally omitted in this no-root build." > kernel/drivers/kernelsu/Kconfig
           git -C kernel submodule update --init --depth 1 Baseband-guard
           test -f kernel/Baseband-guard/Kconfig
           ln -s ../Baseband-guard kernel/security/baseband-guard
