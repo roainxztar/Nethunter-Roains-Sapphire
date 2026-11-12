@@ -132,7 +132,64 @@ jobs:
           for opt in MT76x0U MT76x2U; do
             grep -q "^CONFIG_${opt}=m$" out/.config
           done
-          ! grep -q '^CONFIG_KSU=y
+          ! grep -q '^CONFIG_KSU=y          ! grep -q '^CONFIG_KERNELSU=y$' out/.config
+      - name: Compile kernel, modules and DTBs
+        working-directory: kernel
+        run: |
+          ! grep -q '^CONFIG_KSU=y$' out/.config
+          JOBS="$(nproc)"; if [ "$JOBS" -gt 4 ]; then JOBS=4; fi
+          echo "Compiling with $JOBS parallel jobs"
+          free -h
+          make -j"$JOBS" O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 KCFLAGS="-mllvm -regalloc-enable-advisor=default -Wno-error=unused-but-set-variable -Wno-error=unused-const-variable" KBUILD_LDFLAGS="-mllvm -regalloc-enable-advisor=default" Image.gz modules dtbs
+          mkdir -p "$GITHUB_WORKSPACE/build-output"
+          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/"
+          cp out/.config "$GITHUB_WORKSPACE/build-output/kernel.config"
+          make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
+          depmod -b "$GITHUB_WORKSPACE/staging" "$(cat out/include/config/kernel.release)"
+          cp -a "$GITHUB_WORKSPACE/staging/lib/modules" "$GITHUB_WORKSPACE/build-output/"
+          find out/arch/arm64/boot/dts -type f \( -name '*.dtb' -o -name '*.dtbo' \) -exec cp --parents {} "$GITHUB_WORKSPACE/build-output/" \;
+
+      - name: Upload verified non-KSU build outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: Roains-Nethunter-Sapphire-no-root
+          path: |
+            build-output/
+            final-kernel.config
+            config-verification.txt
+            patch-integration.txt
+          if-no-files-found: error
+          retention-days: 14
+ out/.config
+          ! grep -q '^CONFIG_KERNELSU=y$' out/.config
+      - name: Compile kernel, modules and DTBs
+        working-directory: kernel
+        run: |
+          ! grep -q '^CONFIG_KSU=y$' out/.config
+          JOBS="$(nproc)"; if [ "$JOBS" -gt 4 ]; then JOBS=4; fi
+          echo "Compiling with $JOBS parallel jobs"
+          free -h
+          make -j"$JOBS" O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 KCFLAGS="-mllvm -regalloc-enable-advisor=default -Wno-error=unused-but-set-variable -Wno-error=unused-const-variable" KBUILD_LDFLAGS="-mllvm -regalloc-enable-advisor=default" Image.gz modules dtbs
+          mkdir -p "$GITHUB_WORKSPACE/build-output"
+          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/"
+          cp out/.config "$GITHUB_WORKSPACE/build-output/kernel.config"
+          make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
+          depmod -b "$GITHUB_WORKSPACE/staging" "$(cat out/include/config/kernel.release)"
+          cp -a "$GITHUB_WORKSPACE/staging/lib/modules" "$GITHUB_WORKSPACE/build-output/"
+          find out/arch/arm64/boot/dts -type f \( -name '*.dtb' -o -name '*.dtbo' \) -exec cp --parents {} "$GITHUB_WORKSPACE/build-output/" \;
+
+      - name: Upload verified non-KSU build outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: Roains-Nethunter-Sapphire-no-root
+          path: |
+            build-output/
+            final-kernel.config
+            config-verification.txt
+            patch-integration.txt
+          if-no-files-found: error
+          retention-days: 14
+ out/.config
           ! grep -q '^CONFIG_KERNELSU=y$' out/.config
       - name: Compile kernel, modules and DTBs
         working-directory: kernel
