@@ -132,7 +132,8 @@ jobs:
           for opt in MT76x0U MT76x2U; do
             grep -q "^CONFIG_${opt}=m$" out/.config
           done
-          ! grep -q '^CONFIG_KSU=y          ! grep -q '^CONFIG_KERNELSU=y$' out/.config
+          ! grep -q '^CONFIG_KSU=y$' out/.config
+          ! grep -q '^CONFIG_KERNELSU=y$' out/.config
       - name: Compile kernel, modules and DTBs
         working-directory: kernel
         run: |
