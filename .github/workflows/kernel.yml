@@ -92,7 +92,7 @@ jobs:
         working-directory: kernel
         run: |
           ! grep -q '^CONFIG_KSU=y$' out/.config
-          make -j"$(nproc)" O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 KCFLAGS="-Wno-error=unused-but-set-variable -Wno-error=unused-const-variable" KBUILD_LDFLAGS="-mllvm -regalloc-enable-advisor=default" Image.gz modules dtbs
+          make -j"$(nproc)" O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 KCFLAGS="-mllvm -regalloc-enable-advisor=default -Wno-error=unused-but-set-variable -Wno-error=unused-const-variable" KBUILD_LDFLAGS="-mllvm -regalloc-enable-advisor=default" Image.gz modules dtbs
           mkdir -p "$GITHUB_WORKSPACE/build-output"
           cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/"
           cp out/.config "$GITHUB_WORKSPACE/build-output/kernel.config"
