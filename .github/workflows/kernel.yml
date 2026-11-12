@@ -38,7 +38,13 @@ jobs:
           ln -s ../KernelSU-Next/kernel kernel/drivers/kernelsu
           test -f kernel/drivers/kernelsu/Kconfig
           test -f kernel/drivers/kernelsu/Makefile
-          echo "KernelSU-Next source linked into drivers/kernelsu."
+          # ChicKernel also requires Baseband-guard under security/baseband-guard.
+          git -C kernel submodule update --init --depth 1 Baseband-guard
+          test -f kernel/Baseband-guard/Kconfig
+          ln -s ../Baseband-guard kernel/security/baseband-guard
+          test -f kernel/security/baseband-guard/Kconfig
+          test -f kernel/security/baseband-guard/Makefile
+          echo "KernelSU-Next and Baseband-guard sources linked at their required kernel paths."
 
       - name: Fetch and strictly validate NetHunter 5.15 patch
         run: |
