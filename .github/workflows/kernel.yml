@@ -27,12 +27,17 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache clang-14 flex git libelf-dev libssl-dev lld-14 pahole python3 python-is-python3 rsync
+          sudo apt-get install -y bc bison build-essential ccache clang-14 flex git libelf-dev libssl-dev lld-14 llvm-14 pahole python3 python-is-python3 rsync
           # Kernel host tools call ld.lld by its unversioned name even when LLVM=-14 is set.
           test -x /usr/bin/ld.lld-14
           sudo ln -sf /usr/bin/ld.lld-14 /usr/local/bin/ld.lld
           sudo ln -sf /usr/bin/clang-14 /usr/local/bin/clang
           sudo ln -sf /usr/bin/clang++-14 /usr/local/bin/clang++
+          for tool in ar ranlib nm objcopy objdump strip readelf; do
+            test -x "/usr/bin/llvm-${tool}-14"
+            sudo ln -sf "/usr/bin/llvm-${tool}-14" "/usr/local/bin/llvm-${tool}"
+          done
+          llvm-ar --version
           ld.lld --version
           clang --version
 
@@ -87,7 +92,7 @@ jobs:
         working-directory: kernel
         run: |
           ! grep -q '^CONFIG_KSU=y$' out/.config
-          make -j"$(nproc)" O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 Image.gz modules dtbs
+          make -j"$(nproc)" O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 KCFLAGS="-mllvm -regalloc-enable-advisor=default" Image.gz modules dtbs
           mkdir -p "$GITHUB_WORKSPACE/build-output"
           cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/"
           cp out/.config "$GITHUB_WORKSPACE/build-output/kernel.config"
