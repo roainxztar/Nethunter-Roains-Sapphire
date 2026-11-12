@@ -172,6 +172,8 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/build-output"
           cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/"
           cp out/.config "$GITHUB_WORKSPACE/build-output/kernel.config"
+          test -s out/Module.symvers
+          cp out/Module.symvers "$GITHUB_WORKSPACE/build-output/Module.symvers"
           make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
           KERNEL_RELEASE="$(cat out/include/config/kernel.release)"
           MODULES_DIR="$GITHUB_WORKSPACE/staging/lib/modules/$KERNEL_RELEASE"
