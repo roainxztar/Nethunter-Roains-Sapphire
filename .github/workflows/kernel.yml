@@ -100,9 +100,10 @@ jobs:
           for path in drivers/net/wireless/mediatek/mt76/mt76x0/Kconfig drivers/net/wireless/mediatek/mt76/mt76x2/Kconfig; do
             grep -nE '^config (MT76x0U|MT76x2U)' "$path"
           done
-          # Request both USB adapters as loadable modules.
-          $cfg --module MT76x0U
-          $cfg --module MT76x2U
+          # These Kconfig symbols contain lowercase x and uppercase U. The
+          # scripts/config default uppercases symbols, so preserve exact case.
+          $cfg --keep-case --module MT76x0U
+          $cfg --keep-case --module MT76x2U
           echo "=== MT76 requested values before olddefconfig ==="
           grep -E '^(CONFIG_MT76x0U=|CONFIG_MT76x2U=|# CONFIG_MT76)' out/.config || true
           echo "=== MT76 parent values before olddefconfig ==="
