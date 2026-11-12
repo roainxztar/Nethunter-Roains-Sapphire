@@ -29,22 +29,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bc bison build-essential ccache clang-14 flex git libelf-dev libssl-dev lld-14 pahole python3 python-is-python3 rsync
 
-      - name: Fetch ChicKernel source and integrate KernelSU-Next
+      - name: Fetch ChicKernel source and integrate required security source
         run: |
           git clone --depth=1 --branch android13-5.15-lts https://github.com/ChicKernel/device_xiaomi_gemstones-kernel.git kernel
           test "$(make -s -C kernel kernelversion)" = "5.15.189"
-          git -C kernel submodule update --init --depth 1 KernelSU-Next
-          test -f kernel/KernelSU-Next/kernel/Kconfig
-          ln -s ../KernelSU-Next/kernel kernel/drivers/kernelsu
-          test -f kernel/drivers/kernelsu/Kconfig
-          test -f kernel/drivers/kernelsu/Makefile
           # ChicKernel also requires Baseband-guard under security/baseband-guard.
           git -C kernel submodule update --init --depth 1 Baseband-guard
           test -f kernel/Baseband-guard/Kconfig
           ln -s ../Baseband-guard kernel/security/baseband-guard
           test -f kernel/security/baseband-guard/Kconfig
           test -f kernel/security/baseband-guard/Makefile
-          echo "KernelSU-Next and Baseband-guard sources linked at their required kernel paths."
+          echo "Baseband-guard source linked at its required kernel path; no root manager is integrated."
 
       - name: Fetch and strictly validate NetHunter 5.15 patch
         run: |
@@ -58,14 +53,14 @@ jobs:
           grep -q 'ieee80211_tx_h_sequence' <(git -C kernel diff -- net/mac80211/tx.c)
           echo "NetHunter 5.15 patch applied and verified." | tee -a patch-integration.txt
 
-      - name: Configure NetHunter, KernelSU-Next and chroot features
+      - name: Configure NetHunter and chroot features
         working-directory: kernel
         run: |
           make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 chickernel_defconfig
           cfg="scripts/config --file out/.config"
           $cfg --set-str LOCALVERSION "-Nethunter-Roains-Sapphire"
           $cfg --disable LOCALVERSION_AUTO
-          for opt in PID_NS NET_NS IPC_NS UTS_NS USER_NS CGROUPS MEMCG CGROUP_FREEZER CPUSETS CGROUP_PIDS CGROUP_CPUACCT CGROUP_SCHED CGROUP_BPF SECCOMP SECCOMP_FILTER BPF_SYSCALL OVERLAY_FS FUSE_FS BLK_DEV_LOOP BLK_DEV_DM VETH TUN BRIDGE VLAN_8021Q NETFILTER NF_CONNTRACK NETFILTER_XTABLES NF_TABLES IP_NF_IPTABLES IP6_NF_IPTABLES CFG80211 MAC80211 WIRELESS RFKILL USB_GADGET USB_CONFIGFS USB_CONFIGFS_F_HID USB_CONFIGFS_F_FS USB_CONFIGFS_F_MASS_STORAGE USB_CONFIGFS_F_ACM USB_CONFIGFS_F_RNDIS USB_CONFIGFS_F_ECM USB_CONFIGFS_F_NCM BT BT_HCIBTUSB BT_HCIUART NFS_FS NFSD IKCONFIG IKCONFIG_PROC KSU KPROBES KPROBE_EVENTS KALLSYMS KALLSYMS_ALL; do
+          for opt in PID_NS NET_NS IPC_NS UTS_NS USER_NS CGROUPS MEMCG CGROUP_FREEZER CPUSETS CGROUP_PIDS CGROUP_CPUACCT CGROUP_SCHED CGROUP_BPF SECCOMP SECCOMP_FILTER BPF_SYSCALL OVERLAY_FS FUSE_FS BLK_DEV_LOOP BLK_DEV_DM VETH TUN BRIDGE VLAN_8021Q NETFILTER NF_CONNTRACK NETFILTER_XTABLES NF_TABLES IP_NF_IPTABLES IP6_NF_IPTABLES CFG80211 MAC80211 WIRELESS RFKILL USB_GADGET USB_CONFIGFS USB_CONFIGFS_F_HID USB_CONFIGFS_F_FS USB_CONFIGFS_F_MASS_STORAGE USB_CONFIGFS_F_ACM USB_CONFIGFS_F_RNDIS USB_CONFIGFS_F_ECM USB_CONFIGFS_F_NCM BT BT_HCIBTUSB BT_HCIUART NFS_FS NFSD IKCONFIG IKCONFIG_PROC KPROBES KPROBE_EVENTS KALLSYMS KALLSYMS_ALL; do
             $cfg --enable "$opt" || true
           done
           make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 olddefconfig
@@ -73,46 +68,26 @@ jobs:
           grep -E '^(CONFIG_(LOCALVERSION|PID_NS|NET_NS|IPC_NS|UTS_NS|USER_NS|CGROUPS|MEMCG|OVERLAY_FS|USB_CONFIGFS_F_HID|CFG80211|MAC80211|NFS_FS|KSU|KPROBES|KPROBE_EVENTS)=|# CONFIG_(PID_NS|NET_NS|OVERLAY_FS) is not set)' out/.config | tee ../config-verification.txt
           grep -q '^CONFIG_PID_NS=y$' out/.config
           grep -q '^CONFIG_USB_CONFIGFS_F_HID=y$' out/.config
-          grep -q '^CONFIG_KSU=y$' out/.config
-          grep -q '^CONFIG_KPROBES=y$' out/.config
+          ! grep -q '^CONFIG_KSU=y          grep -q '^CONFIG_KPROBES=y$' out/.config
           grep -q '^CONFIG_KPROBE_EVENTS=y$' out/.config
 
-      - name: Compile KernelSU-Next variant
+      - name: Compile kernel, modules and DTBs
         working-directory: kernel
         run: |
+          ! grep -q '^CONFIG_KSU=y$' out/.config
           make -j"$(nproc)" O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 Image.gz modules dtbs
-          grep -q '^CONFIG_KSU=y out/.config
-          mkdir -p "$GITHUB_WORKSPACE/build-output/KernelSU-Next"
-          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/KernelSU-Next/"
-          cp out/.config "$GITHUB_WORKSPACE/build-output/KernelSU-Next/kernel.config"
-          make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging-ksu" modules_install
-          depmod -b "$GITHUB_WORKSPACE/staging-ksu" "$(cat out/include/config/kernel.release)"
-          cp -a "$GITHUB_WORKSPACE/staging-ksu/lib/modules" "$GITHUB_WORKSPACE/build-output/KernelSU-Next/"
-          find out/arch/arm64/boot/dts -type f \( -name '*.dtb' -o -name '*.dtbo' \) -exec cp --parents {} "$GITHUB_WORKSPACE/build-output/KernelSU-Next/" \;
+          mkdir -p "$GITHUB_WORKSPACE/build-output"
+          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/"
+          cp out/.config "$GITHUB_WORKSPACE/build-output/kernel.config"
+          make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
+          depmod -b "$GITHUB_WORKSPACE/staging" "$(cat out/include/config/kernel.release)"
+          cp -a "$GITHUB_WORKSPACE/staging/lib/modules" "$GITHUB_WORKSPACE/build-output/"
+          find out/arch/arm64/boot/dts -type f \( -name '*.dtb' -o -name '*.dtbo' \) -exec cp --parents {} "$GITHUB_WORKSPACE/build-output/" \;
 
-      - name: Configure and compile non-KSU variant
-        working-directory: kernel
-        run: |
-          scripts/config --file out/.config --disable KSU
-          make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 olddefconfig
-          ! grep -q '^CONFIG_KSU=y out/.config
-          cp out/.config "$GITHUB_WORKSPACE/build-output/Non-KSU/kernel.config"
-          mkdir -p "$GITHUB_WORKSPACE/build-output/Non-KSU"
-          cp out/.config "$GITHUB_WORKSPACE/build-output/Non-KSU/kernel.config"
-          grep -q '^CONFIG_PID_NS=y out/.config
-          grep -q '^CONFIG_USB_CONFIGFS_F_HID=y out/.config
-          make -j"$(nproc)" O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 Image.gz modules dtbs
-          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/Non-KSU/"
-          make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging-noksu" modules_install
-          depmod -b "$GITHUB_WORKSPACE/staging-noksu" "$(cat out/include/config/kernel.release)"
-          cp -a "$GITHUB_WORKSPACE/staging-noksu/lib/modules" "$GITHUB_WORKSPACE/build-output/Non-KSU/"
-          find out/arch/arm64/boot/dts -type f \( -name '*.dtb' -o -name '*.dtbo' \) -exec cp --parents {} "$GITHUB_WORKSPACE/build-output/Non-KSU/" \;
-          cp out/.config "$GITHUB_WORKSPACE/build-output/Non-KSU/kernel.config"
-
-      - name: Upload both verified kernel variants
+      - name: Upload verified non-KSU build outputs
         uses: actions/upload-artifact@v4
         with:
-          name: Roains-Nethunter-Sapphire-two-variants
+          name: Roains-Nethunter-Sapphire-no-root
           path: |
             build-output/
             final-kernel.config
