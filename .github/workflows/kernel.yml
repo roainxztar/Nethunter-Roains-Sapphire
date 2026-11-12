@@ -28,7 +28,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y bc bison build-essential ccache clang-14 flex git libelf-dev libssl-dev lld-14 llvm-14 pahole python3 python-is-python3 rsync
-          # Kernel host tools call ld.lld by its unversioned name even when LLVM=-14 is set.
           test -x /usr/bin/ld.lld-14
           sudo ln -sf /usr/bin/ld.lld-14 /usr/local/bin/ld.lld
           sudo ln -sf /usr/bin/clang-14 /usr/local/bin/clang
@@ -45,8 +44,6 @@ jobs:
         run: |
           git clone --depth=1 --branch android13-5.15-lts https://github.com/ChicKernel/device_xiaomi_gemstones-kernel.git kernel
           test "$(make -s -C kernel kernelversion)" = "5.15.189"
-          # ChicKernel sources drivers/kernelsu/Kconfig unconditionally.
-          # Keep the Kconfig include resolvable without adding any root manager.
           rm -rf kernel/drivers/kernelsu
           mkdir -p kernel/drivers/kernelsu
           printf "%s\\n" "# KernelSU intentionally omitted in this no-root build." > kernel/drivers/kernelsu/Kconfig
@@ -78,8 +75,11 @@ jobs:
           $cfg --set-str LOCALVERSION "-Nethunter-Roains-Sapphire"
           $cfg --disable LOCALVERSION_AUTO
 
-          # Namespaces and Docker/chroot foundations. Preserve existing cgroup
-          # controllers and add the missing PID/device controllers and NAT bridge.
+          # Enable loadable-module support: MT76 USB adapters are tristate
+          # drivers and cannot resolve to m without CONFIG_MODULES=y.
+          $cfg --enable MODULES
+
+          # Namespaces and Docker/chroot foundations.
           for opt in NAMESPACES PID_NS NET_NS SYSVIPC IPC_NS UTS_NS USER_NS CGROUPS MEMCG CGROUP_FREEZER CPUSETS CGROUP_PIDS CGROUP_CPUACCT CGROUP_SCHED CGROUP_DEVICE CGROUP_BPF BLK_CGROUP SECCOMP SECCOMP_FILTER BPF_SYSCALL BPF_JIT OVERLAY_FS FUSE_FS BLK_DEV_LOOP BLK_DEV_DM DM_CRYPT DM_VERITY VETH TUN BRIDGE BRIDGE_NETFILTER VLAN_8021Q NETFILTER NF_CONNTRACK NF_NAT NETFILTER_XTABLES NF_TABLES IP_NF_IPTABLES IP_NF_NAT IP6_NF_IPTABLES IP6_NF_NAT; do
             $cfg --enable "$opt" || true
           done
@@ -89,30 +89,19 @@ jobs:
             $cfg --enable "$opt" || true
           done
 
-          # Mainline-supported USB Wi-Fi families in this 5.15 source.
-          # rtw88 in this tree is PCI-only; no rtw88 USB symbol exists.
-          # RTL8188EUS requires a separate vendor driver, not present in-tree.
-          # Force the vendor menu and USB driver tristates explicitly.
-          # The parent menu must survive olddefconfig or the child symbols vanish.
+          # In-tree MediaTek USB Wi-Fi drivers. rtw88 USB and RTL8188EUS
+          # are not available in this source tree as native USB drivers.
           $cfg --enable WLAN
           $cfg --enable WLAN_VENDOR_MEDIATEK
-          # Explicitly seed the hidden MT76 tristate dependencies as modules.
-          # Kconfig selects these too, but setting them here makes dependency
-          # resolution deterministic before olddefconfig.
-          for opt in MT76_CORE MT76_USB MT76x02_LIB MT76x02_USB MT76x0_COMMON MT76x2_COMMON; do
-            $cfg --module "$opt"
-          done
-          # Keep both supported MediaTek USB adapter drivers loadable, not built-in.
           $cfg --module MT76x0U
           $cfg --module MT76x2U
 
-          # CAN stack: raw sockets, virtual CAN and serial/USB serial slcan.
-          # HLCAN is not present in this kernel source tree; do not fabricate it.
+          # CAN stack; HLCAN is not present in this source tree.
           for opt in CAN CAN_RAW CAN_BCM CAN_GW CAN_VCAN CAN_VXCAN CAN_SLCAN CAN_DEV CAN_CALC_BITTIMING; do
             $cfg --enable "$opt" || true
           done
 
-          # RTL2832 SDR software stack. RTL28xxU is the matching USB receiver.
+          # RTL2832 SDR software stack.
           for opt in MEDIA_SUPPORT MEDIA_DIGITAL_TV_SUPPORT MEDIA_SDR_SUPPORT VIDEO_DEV VIDEO_V4L2 DVB_CORE DVB_USB_V2 DVB_USB_RTL28XXU DVB_RTL2832 DVB_RTL2832_SDR I2C I2C_MUX VIDEOBUF2_VMALLOC; do
             $cfg --enable "$opt" || true
           done
@@ -121,25 +110,24 @@ jobs:
           cp out/.config ../final-kernel.config
           {
             echo "=== Requested feature configuration after olddefconfig ==="
-            for opt in PID_NS NET_NS IPC_NS UTS_NS USER_NS CGROUPS CGROUP_DEVICE MEMCG CGROUP_FREEZER CPUSETS CGROUP_PIDS CGROUP_CPUACCT CGROUP_SCHED SECCOMP SECCOMP_FILTER BPF_SYSCALL OVERLAY_FS FUSE_FS BLK_DEV_LOOP BLK_DEV_DM VETH TUN BRIDGE BRIDGE_NETFILTER NF_CONNTRACK NF_NAT IP_NF_NAT IP6_NF_NAT WLAN WLAN_VENDOR_MEDIATEK CFG80211 MAC80211 USB USB_SUPPORT MT76_CORE MT76_USB MT76x02_LIB MT76x02_USB MT76x0_COMMON MT76x2_COMMON USB_CONFIGFS_F_HID BT_HCIBTUSB BT_HCIBTUSB_RTL BT_HCIUART_QCA NFS_FS NFSD MT76x0U MT76x2U CAN_RAW CAN_VCAN CAN_SLCAN MEDIA_SDR_SUPPORT DVB_RTL2832_SDR DVB_USB_RTL28XXU; do
+            for opt in MODULES PID_NS NET_NS IPC_NS UTS_NS USER_NS CGROUPS CGROUP_DEVICE MEMCG CGROUP_FREEZER CPUSETS CGROUP_PIDS CGROUP_CPUACCT CGROUP_SCHED SECCOMP SECCOMP_FILTER BPF_SYSCALL OVERLAY_FS FUSE_FS BLK_DEV_LOOP BLK_DEV_DM VETH TUN BRIDGE BRIDGE_NETFILTER NF_CONNTRACK NF_NAT IP_NF_NAT IP6_NF_NAT WLAN WLAN_VENDOR_MEDIATEK CFG80211 MAC80211 USB USB_SUPPORT MT76_CORE MT76_USB MT76x02_LIB MT76x02_USB MT76x0_COMMON MT76x2_COMMON USB_CONFIGFS_F_HID BT_HCIBTUSB BT_HCIBTUSB_RTL BT_HCIUART_QCA NFS_FS NFSD MT76x0U MT76x2U CAN_RAW CAN_VCAN CAN_SLCAN MEDIA_SDR_SUPPORT DVB_RTL2832_SDR DVB_USB_RTL28XXU; do
               grep -E "^(CONFIG_${opt}=(y|m)|# CONFIG_${opt} is not set)" out/.config || true
             done
           } | tee ../config-verification.txt
 
-          # Hard requirements for container isolation, HID, NetHunter wireless,
-          # CAN and SDR; peripheral drivers are allowed to resolve to modules.
+          grep -q '^CONFIG_MODULES=y$' out/.config
           for opt in PID_NS NET_NS IPC_NS UTS_NS USER_NS CGROUPS CGROUP_DEVICE MEMCG CGROUP_FREEZER CPUSETS CGROUP_PIDS SECCOMP SECCOMP_FILTER WLAN WLAN_VENDOR_MEDIATEK CFG80211 MAC80211 USB USB_SUPPORT USB_CONFIGFS_F_HID; do
             grep -q "^CONFIG_${opt}=y$" out/.config
           done
           for opt in NFS_FS NFSD BT_HCIUART_QCA CAN_RAW CAN_VCAN CAN_SLCAN MEDIA_SDR_SUPPORT DVB_RTL2832_SDR DVB_USB_RTL28XXU; do
             grep -Eq "^CONFIG_${opt}=(y|m)$" out/.config
           done
-          # Both MT76 USB adapters must remain modules (m), never built-in (y).
           for opt in MT76x0U MT76x2U; do
             grep -q "^CONFIG_${opt}=m$" out/.config
           done
           ! grep -q '^CONFIG_KSU=y$' out/.config
           ! grep -q '^CONFIG_KERNELSU=y$' out/.config
+
       - name: Compile kernel, modules and DTBs
         working-directory: kernel
         run: |
