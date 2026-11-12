@@ -28,6 +28,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y bc bison build-essential ccache clang-14 flex git libelf-dev libssl-dev lld-14 pahole python3 python-is-python3 rsync
+          # Kernel host tools call ld.lld by its unversioned name even when LLVM=-14 is set.
+          test -x /usr/bin/ld.lld-14
+          sudo ln -sf /usr/bin/ld.lld-14 /usr/local/bin/ld.lld
+          sudo ln -sf /usr/bin/clang-14 /usr/local/bin/clang
+          sudo ln -sf /usr/bin/clang++-14 /usr/local/bin/clang++
+          ld.lld --version
+          clang --version
 
       - name: Fetch ChicKernel source and integrate required security source
         run: |
