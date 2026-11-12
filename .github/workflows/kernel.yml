@@ -50,14 +50,14 @@ jobs:
       - name: Configure NetHunter and chroot features
         working-directory: kernel
         run: |
-          make O=out ARCH=arm64 LLVM=-14 chickernel_defconfig
+          make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 chickernel_defconfig
           cfg="scripts/config --file out/.config"
           $cfg --set-str LOCALVERSION "-Nethunter-Roains-Sapphire"
           $cfg --disable LOCALVERSION_AUTO
           for opt in PID_NS NET_NS IPC_NS UTS_NS USER_NS CGROUPS MEMCG CGROUP_FREEZER CPUSETS CGROUP_PIDS CGROUP_CPUACCT CGROUP_SCHED CGROUP_BPF SECCOMP SECCOMP_FILTER BPF_SYSCALL OVERLAY_FS FUSE_FS BLK_DEV_LOOP BLK_DEV_DM VETH TUN BRIDGE VLAN_8021Q NETFILTER NF_CONNTRACK NETFILTER_XTABLES NF_TABLES IP_NF_IPTABLES IP6_NF_IPTABLES CFG80211 MAC80211 WIRELESS RFKILL USB_GADGET USB_CONFIGFS USB_CONFIGFS_F_HID USB_CONFIGFS_F_FS USB_CONFIGFS_F_MASS_STORAGE USB_CONFIGFS_F_ACM USB_CONFIGFS_F_RNDIS USB_CONFIGFS_F_ECM USB_CONFIGFS_F_NCM BT BT_HCIBTUSB BT_HCIUART NFS_FS NFSD IKCONFIG IKCONFIG_PROC; do
             $cfg --enable "$opt" || true
           done
-          make O=out ARCH=arm64 LLVM=-14 olddefconfig
+          make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 olddefconfig
           cp out/.config ../final-kernel.config
           grep -E '^(CONFIG_(LOCALVERSION|PID_NS|NET_NS|IPC_NS|UTS_NS|USER_NS|CGROUPS|MEMCG|OVERLAY_FS|USB_CONFIGFS_F_HID|CFG80211|MAC80211|NFS_FS)=|# CONFIG_(PID_NS|NET_NS|OVERLAY_FS) is not set)' out/.config | tee ../config-verification.txt
           grep -q '^CONFIG_PID_NS=y$' out/.config
@@ -66,12 +66,12 @@ jobs:
       - name: Compile kernel, modules and DTBs
         working-directory: kernel
         run: |
-          make -j"$(nproc)" O=out ARCH=arm64 LLVM=-14 Image.gz modules dtbs
+          make -j"$(nproc)" O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 Image.gz modules dtbs
 
       - name: Install modules to staging directory
         working-directory: kernel
         run: |
-          make O=out ARCH=arm64 LLVM=-14 INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
+          make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
           depmod -b "$GITHUB_WORKSPACE/staging" "$(cat out/include/config/kernel.release)"
           mkdir -p "$GITHUB_WORKSPACE/build-output"
           cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/"
