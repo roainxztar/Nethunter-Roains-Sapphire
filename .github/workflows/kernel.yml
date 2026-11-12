@@ -34,6 +34,11 @@ jobs:
           git clone --depth=1 --branch android13-5.15-lts \
             https://github.com/ChicKernel/device_xiaomi_gemstones-kernel.git kernel
           test "$(make -s -C kernel kernelversion)" = "5.15.189"
+          # ChicKernel's drivers/Kconfig expects KernelSU-Next at drivers/kernelsu.
+          git -C kernel submodule update --init --depth 1 KernelSU-Next
+          test -f kernel/KernelSU-Next/kernel/Kconfig
+          ln -s ../KernelSU-Next/kernel kernel/drivers/kernelsu
+          test -f kernel/drivers/kernelsu/Kconfig
 
       - name: Fetch and strictly validate NetHunter 5.15 patch
         run: |
@@ -54,14 +59,71 @@ jobs:
           cfg="scripts/config --file out/.config"
           $cfg --set-str LOCALVERSION "-Nethunter-Roains-Sapphire"
           $cfg --disable LOCALVERSION_AUTO
-          for opt in PID_NS NET_NS IPC_NS UTS_NS USER_NS CGROUPS MEMCG CGROUP_FREEZER CPUSETS CGROUP_PIDS CGROUP_CPUACCT CGROUP_SCHED CGROUP_BPF SECCOMP SECCOMP_FILTER BPF_SYSCALL OVERLAY_FS FUSE_FS BLK_DEV_LOOP BLK_DEV_DM VETH TUN BRIDGE VLAN_8021Q NETFILTER NF_CONNTRACK NETFILTER_XTABLES NF_TABLES IP_NF_IPTABLES IP6_NF_IPTABLES CFG80211 MAC80211 WIRELESS RFKILL USB_GADGET USB_CONFIGFS USB_CONFIGFS_F_HID USB_CONFIGFS_F_FS USB_CONFIGFS_F_MASS_STORAGE USB_CONFIGFS_F_ACM USB_CONFIGFS_F_RNDIS USB_CONFIGFS_F_ECM USB_CONFIGFS_F_NCM BT BT_HCIBTUSB BT_HCIUART NFS_FS NFSD IKCONFIG IKCONFIG_PROC; do
+          for opt in PID_NS NET_NS IPC_NS UTS_NS USER_NS CGROUPS MEMCG CGROUP_FREEZER CPUSETS CGROUP_PIDS CGROUP_CPUACCT CGROUP_SCHED CGROUP_BPF SECCOMP SECCOMP_FILTER BPF_SYSCALL OVERLAY_FS FUSE_FS BLK_DEV_LOOP BLK_DEV_DM VETH TUN BRIDGE VLAN_8021Q NETFILTER NF_CONNTRACK NETFILTER_XTABLES NF_TABLES IP_NF_IPTABLES IP6_NF_IPTABLES CFG80211 MAC80211 WIRELESS RFKILL USB_GADGET USB_CONFIGFS USB_CONFIGFS_F_HID USB_CONFIGFS_F_FS USB_CONFIGFS_F_MASS_STORAGE USB_CONFIGFS_F_ACM USB_CONFIGFS_F_RNDIS USB_CONFIGFS_F_ECM USB_CONFIGFS_F_NCM BT BT_HCIBTUSB BT_HCIUART NFS_FS NFSD IKCONFIG IKCONFIG_PROC KSU KPROBES KPROBE_EVENTS KALLSYMS KALLSYMS_ALL; do
             $cfg --enable "$opt" || true
           done
           make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 olddefconfig
           cp out/.config ../final-kernel.config
           grep -E '^(CONFIG_(LOCALVERSION|PID_NS|NET_NS|IPC_NS|UTS_NS|USER_NS|CGROUPS|MEMCG|OVERLAY_FS|USB_CONFIGFS_F_HID|CFG80211|MAC80211|NFS_FS)=|# CONFIG_(PID_NS|NET_NS|OVERLAY_FS) is not set)' out/.config | tee ../config-verification.txt
           grep -q '^CONFIG_PID_NS=y$' out/.config
-          grep -q '^CONFIG_USB_CONFIGFS_F_HID=y$' out/.config
+          grep -q '^CONFIG_USB_CONFIGFS_F_HID=y
+
+      - name: Compile kernel, modules and DTBs
+        working-directory: kernel
+        run: |
+          make -j"$(nproc)" O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 Image.gz modules dtbs
+
+      - name: Install modules to staging directory
+        working-directory: kernel
+        run: |
+          make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
+          depmod -b "$GITHUB_WORKSPACE/staging" "$(cat out/include/config/kernel.release)"
+          mkdir -p "$GITHUB_WORKSPACE/build-output"
+          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/"
+          cp -a "$GITHUB_WORKSPACE/staging/lib/modules" "$GITHUB_WORKSPACE/build-output/"
+          find out/arch/arm64/boot/dts -type f \( -name '*.dtb' -o -name '*.dtbo' \) -exec cp --parents {} "$GITHUB_WORKSPACE/build-output/" \;
+
+      - name: Upload verified build outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: Roains-Nethunter-Sapphire-build-validation
+          path: |
+            build-output/
+            final-kernel.config
+            config-verification.txt
+            patch-integration.txt
+          if-no-files-found: error
+          retention-days: 14
+ out/.config
+          grep -q '^CONFIG_KSU=y
+
+      - name: Compile kernel, modules and DTBs
+        working-directory: kernel
+        run: |
+          make -j"$(nproc)" O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 Image.gz modules dtbs
+
+      - name: Install modules to staging directory
+        working-directory: kernel
+        run: |
+          make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
+          depmod -b "$GITHUB_WORKSPACE/staging" "$(cat out/include/config/kernel.release)"
+          mkdir -p "$GITHUB_WORKSPACE/build-output"
+          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/"
+          cp -a "$GITHUB_WORKSPACE/staging/lib/modules" "$GITHUB_WORKSPACE/build-output/"
+          find out/arch/arm64/boot/dts -type f \( -name '*.dtb' -o -name '*.dtbo' \) -exec cp --parents {} "$GITHUB_WORKSPACE/build-output/" \;
+
+      - name: Upload verified build outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: Roains-Nethunter-Sapphire-build-validation
+          path: |
+            build-output/
+            final-kernel.config
+            config-verification.txt
+            patch-integration.txt
+          if-no-files-found: error
+          retention-days: 14
+ out/.config
 
       - name: Compile kernel, modules and DTBs
         working-directory: kernel
