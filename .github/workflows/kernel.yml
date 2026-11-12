@@ -68,8 +68,7 @@ jobs:
           grep -E '^(CONFIG_(LOCALVERSION|PID_NS|NET_NS|IPC_NS|UTS_NS|USER_NS|CGROUPS|MEMCG|OVERLAY_FS|USB_CONFIGFS_F_HID|CFG80211|MAC80211|NFS_FS|KPROBES|KPROBE_EVENTS)=|# CONFIG_(PID_NS|NET_NS|OVERLAY_FS) is not set)' out/.config | tee ../config-verification.txt
           grep -q '^CONFIG_PID_NS=y$' out/.config
           grep -q '^CONFIG_USB_CONFIGFS_F_HID=y$' out/.config
-          ! grep -q '^CONFIG_KSU=y
-
+          ! grep -q '^CONFIG_KSU=y$' out/.config
       - name: Compile kernel, modules and DTBs
         working-directory: kernel
         run: |
