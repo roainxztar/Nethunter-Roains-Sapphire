@@ -96,6 +96,7 @@ jobs:
           # The parent menu must survive olddefconfig or the child symbols vanish.
           $cfg --enable WLAN
           $cfg --enable WLAN_VENDOR_MEDIATEK
+          # Keep both supported MediaTek USB adapter drivers loadable, not built-in.
           $cfg --module MT76x0U
           $cfg --module MT76x2U
 
@@ -114,20 +115,53 @@ jobs:
           cp out/.config ../final-kernel.config
           {
             echo "=== Requested feature configuration after olddefconfig ==="
-            for opt in PID_NS NET_NS IPC_NS UTS_NS USER_NS CGROUPS CGROUP_DEVICE MEMCG CGROUP_FREEZER CPUSETS CGROUP_PIDS CGROUP_CPUACCT CGROUP_SCHED SECCOMP SECCOMP_FILTER BPF_SYSCALL OVERLAY_FS FUSE_FS BLK_DEV_LOOP BLK_DEV_DM VETH TUN BRIDGE BRIDGE_NETFILTER NF_CONNTRACK NF_NAT IP_NF_NAT IP6_NF_NAT WLAN WLAN_VENDOR_MEDIATEK CFG80211 MAC80211 USB_CONFIGFS_F_HID BT_HCIBTUSB BT_HCIBTUSB_RTL BT_HCIUART_QCA NFS_FS NFSD MT76x0U MT76x2U CAN_RAW CAN_VCAN CAN_SLCAN MEDIA_SDR_SUPPORT DVB_RTL2832_SDR DVB_USB_RTL28XXU; do
+            for opt in PID_NS NET_NS IPC_NS UTS_NS USER_NS CGROUPS CGROUP_DEVICE MEMCG CGROUP_FREEZER CPUSETS CGROUP_PIDS CGROUP_CPUACCT CGROUP_SCHED SECCOMP SECCOMP_FILTER BPF_SYSCALL OVERLAY_FS FUSE_FS BLK_DEV_LOOP BLK_DEV_DM VETH TUN BRIDGE BRIDGE_NETFILTER NF_CONNTRACK NF_NAT IP_NF_NAT IP6_NF_NAT WLAN WLAN_VENDOR_MEDIATEK CFG80211 MAC80211 USB USB_SUPPORT MT76_CORE MT76_USB MT76x02_LIB MT76x02_USB MT76x0_COMMON MT76x2_COMMON USB_CONFIGFS_F_HID BT_HCIBTUSB BT_HCIBTUSB_RTL BT_HCIUART_QCA NFS_FS NFSD MT76x0U MT76x2U CAN_RAW CAN_VCAN CAN_SLCAN MEDIA_SDR_SUPPORT DVB_RTL2832_SDR DVB_USB_RTL28XXU; do
               grep -E "^(CONFIG_${opt}=(y|m)|# CONFIG_${opt} is not set)" out/.config || true
             done
           } | tee ../config-verification.txt
 
           # Hard requirements for container isolation, HID, NetHunter wireless,
           # CAN and SDR; peripheral drivers are allowed to resolve to modules.
-          for opt in PID_NS NET_NS IPC_NS UTS_NS USER_NS CGROUPS CGROUP_DEVICE MEMCG CGROUP_FREEZER CPUSETS CGROUP_PIDS SECCOMP SECCOMP_FILTER WLAN WLAN_VENDOR_MEDIATEK CFG80211 MAC80211 USB_CONFIGFS_F_HID; do
+          for opt in PID_NS NET_NS IPC_NS UTS_NS USER_NS CGROUPS CGROUP_DEVICE MEMCG CGROUP_FREEZER CPUSETS CGROUP_PIDS SECCOMP SECCOMP_FILTER WLAN WLAN_VENDOR_MEDIATEK CFG80211 MAC80211 USB USB_SUPPORT USB_CONFIGFS_F_HID; do
             grep -q "^CONFIG_${opt}=y$" out/.config
           done
-          for opt in NFS_FS NFSD BT_HCIUART_QCA CAN_RAW CAN_VCAN CAN_SLCAN MEDIA_SDR_SUPPORT DVB_RTL2832_SDR DVB_USB_RTL28XXU MT76x0U MT76x2U; do
+          for opt in NFS_FS NFSD BT_HCIUART_QCA CAN_RAW CAN_VCAN CAN_SLCAN MEDIA_SDR_SUPPORT DVB_RTL2832_SDR DVB_USB_RTL28XXU; do
             grep -Eq "^CONFIG_${opt}=(y|m)$" out/.config
           done
+          # Both MT76 USB adapters must remain modules (m), never built-in (y).
+          for opt in MT76x0U MT76x2U; do
+            grep -q "^CONFIG_${opt}=m$" out/.config
+          done
+          ! grep -q '^CONFIG_KSU=y
+          ! grep -q '^CONFIG_KERNELSU=y$' out/.config
+      - name: Compile kernel, modules and DTBs
+        working-directory: kernel
+        run: |
           ! grep -q '^CONFIG_KSU=y$' out/.config
+          JOBS="$(nproc)"; if [ "$JOBS" -gt 4 ]; then JOBS=4; fi
+          echo "Compiling with $JOBS parallel jobs"
+          free -h
+          make -j"$JOBS" O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 KCFLAGS="-mllvm -regalloc-enable-advisor=default -Wno-error=unused-but-set-variable -Wno-error=unused-const-variable" KBUILD_LDFLAGS="-mllvm -regalloc-enable-advisor=default" Image.gz modules dtbs
+          mkdir -p "$GITHUB_WORKSPACE/build-output"
+          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/"
+          cp out/.config "$GITHUB_WORKSPACE/build-output/kernel.config"
+          make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
+          depmod -b "$GITHUB_WORKSPACE/staging" "$(cat out/include/config/kernel.release)"
+          cp -a "$GITHUB_WORKSPACE/staging/lib/modules" "$GITHUB_WORKSPACE/build-output/"
+          find out/arch/arm64/boot/dts -type f \( -name '*.dtb' -o -name '*.dtbo' \) -exec cp --parents {} "$GITHUB_WORKSPACE/build-output/" \;
+
+      - name: Upload verified non-KSU build outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: Roains-Nethunter-Sapphire-no-root
+          path: |
+            build-output/
+            final-kernel.config
+            config-verification.txt
+            patch-integration.txt
+          if-no-files-found: error
+          retention-days: 14
+ out/.config
           ! grep -q '^CONFIG_KERNELSU=y$' out/.config
       - name: Compile kernel, modules and DTBs
         working-directory: kernel
