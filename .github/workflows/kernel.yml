@@ -96,6 +96,12 @@ jobs:
           # The parent menu must survive olddefconfig or the child symbols vanish.
           $cfg --enable WLAN
           $cfg --enable WLAN_VENDOR_MEDIATEK
+          # Explicitly seed the hidden MT76 tristate dependencies as modules.
+          # Kconfig selects these too, but setting them here makes dependency
+          # resolution deterministic before olddefconfig.
+          for opt in MT76_CORE MT76_USB MT76x02_LIB MT76x02_USB MT76x0_COMMON MT76x2_COMMON; do
+            $cfg --module "$opt"
+          done
           # Keep both supported MediaTek USB adapter drivers loadable, not built-in.
           $cfg --module MT76x0U
           $cfg --module MT76x2U
