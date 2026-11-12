@@ -41,7 +41,7 @@ jobs:
           patch_file="nethunter-patches/adapted/5.15/add-wifi-injection-5.15.patch"
           test -s "$patch_file"
           git -C kernel apply --check --whitespace=nowarn "$GITHUB_WORKSPACE/$patch_file"
-          git -C kernel apply --whitespace=nowarn "$GITHUB_WORKSPACE/$patch_file"
+          git -C kernel apply --whitespace=fix "$GITHUB_WORKSPACE/$patch_file"
           git -C kernel diff --check
           git -C kernel diff --stat | tee patch-integration.txt
           grep -q 'ieee80211_tx_h_sequence' <(git -C kernel diff -- net/mac80211/tx.c)
