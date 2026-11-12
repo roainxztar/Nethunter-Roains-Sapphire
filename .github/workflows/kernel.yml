@@ -35,6 +35,7 @@ jobs:
           test "$(make -s -C kernel kernelversion)" = "5.15.189"
           # ChicKernel sources drivers/kernelsu/Kconfig unconditionally.
           # Keep the Kconfig include resolvable without adding any root manager.
+          rm -rf kernel/drivers/kernelsu
           mkdir -p kernel/drivers/kernelsu
           printf "%s\\n" "# KernelSU intentionally omitted in this no-root build." > kernel/drivers/kernelsu/Kconfig
           git -C kernel submodule update --init --depth 1 Baseband-guard
