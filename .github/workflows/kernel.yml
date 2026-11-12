@@ -77,25 +77,42 @@ jobs:
           grep -q '^CONFIG_KPROBES=y$' out/.config
           grep -q '^CONFIG_KPROBE_EVENTS=y$' out/.config
 
-      - name: Compile kernel, modules and DTBs
+      - name: Compile KernelSU-Next variant
         working-directory: kernel
         run: |
           make -j"$(nproc)" O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 Image.gz modules dtbs
+          grep -q '^CONFIG_KSU=y out/.config
+          mkdir -p "$GITHUB_WORKSPACE/build-output/KernelSU-Next"
+          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/KernelSU-Next/"
+          cp out/.config "$GITHUB_WORKSPACE/build-output/KernelSU-Next/kernel.config"
+          make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging-ksu" modules_install
+          depmod -b "$GITHUB_WORKSPACE/staging-ksu" "$(cat out/include/config/kernel.release)"
+          cp -a "$GITHUB_WORKSPACE/staging-ksu/lib/modules" "$GITHUB_WORKSPACE/build-output/KernelSU-Next/"
+          find out/arch/arm64/boot/dts -type f \( -name '*.dtb' -o -name '*.dtbo' \) -exec cp --parents {} "$GITHUB_WORKSPACE/build-output/KernelSU-Next/" \;
 
-      - name: Install modules to staging directory
+      - name: Configure and compile non-KSU variant
         working-directory: kernel
         run: |
-          make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
-          depmod -b "$GITHUB_WORKSPACE/staging" "$(cat out/include/config/kernel.release)"
-          mkdir -p "$GITHUB_WORKSPACE/build-output"
-          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/"
-          cp -a "$GITHUB_WORKSPACE/staging/lib/modules" "$GITHUB_WORKSPACE/build-output/"
-          find out/arch/arm64/boot/dts -type f \( -name '*.dtb' -o -name '*.dtbo' \) -exec cp --parents {} "$GITHUB_WORKSPACE/build-output/" \;
+          scripts/config --file out/.config --disable KSU
+          make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 olddefconfig
+          ! grep -q '^CONFIG_KSU=y out/.config
+          cp out/.config "$GITHUB_WORKSPACE/build-output/Non-KSU/kernel.config"
+          mkdir -p "$GITHUB_WORKSPACE/build-output/Non-KSU"
+          cp out/.config "$GITHUB_WORKSPACE/build-output/Non-KSU/kernel.config"
+          grep -q '^CONFIG_PID_NS=y out/.config
+          grep -q '^CONFIG_USB_CONFIGFS_F_HID=y out/.config
+          make -j"$(nproc)" O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 Image.gz modules dtbs
+          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/Non-KSU/"
+          make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging-noksu" modules_install
+          depmod -b "$GITHUB_WORKSPACE/staging-noksu" "$(cat out/include/config/kernel.release)"
+          cp -a "$GITHUB_WORKSPACE/staging-noksu/lib/modules" "$GITHUB_WORKSPACE/build-output/Non-KSU/"
+          find out/arch/arm64/boot/dts -type f \( -name '*.dtb' -o -name '*.dtbo' \) -exec cp --parents {} "$GITHUB_WORKSPACE/build-output/Non-KSU/" \;
+          cp out/.config "$GITHUB_WORKSPACE/build-output/Non-KSU/kernel.config"
 
-      - name: Upload verified build outputs
+      - name: Upload both verified kernel variants
         uses: actions/upload-artifact@v4
         with:
-          name: Roains-Nethunter-Sapphire-build-validation
+          name: Roains-Nethunter-Sapphire-two-variants
           path: |
             build-output/
             final-kernel.config
