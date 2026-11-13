@@ -7,9 +7,9 @@ dst = pathlib.Path(sys.argv[2])
 dst.mkdir(parents=True, exist_ok=True)
 
 # Feature roots requested by this project. cfg80211 is intentionally retained
-# from the ROM; external USB Wi-Fi adapter drivers are not built here.
+# from the ROM; rtl8xxxu is built against this kernel and packaged as a module.
 roots = [
-    "mac80211.ko", "vcan.ko", "vxcan.ko", "slcan.ko",
+    "mac80211.ko", "rtl8xxxu.ko", "vcan.ko", "vxcan.ko", "slcan.ko",
     "nfs.ko", "nfsv3.ko", "nfsv4.ko", "nfsd.ko",
     "dvb-core.ko", "dvb_usb_v2.ko", "dvb-usb-rtl28xxu.ko",
     "rtl2832.ko", "rtl2832_sdr.ko",
