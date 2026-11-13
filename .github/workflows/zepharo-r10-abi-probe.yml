@@ -124,7 +124,7 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="$RUNNER_TEMP/cirrus-clang/bin:$PATH"
-          make -j4 O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld Image.gz modules
+          KBUILD_SYMTYPES=1 make -j4 O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld Image.gz modules
           test -s out/Module.symvers
           test -s out/arch/arm64/boot/Image.gz
           crc="$(awk '$2 == "module_layout" {print $1}' out/Module.symvers)"
@@ -137,6 +137,20 @@ jobs:
           fi
           printf 'Built Image.gz bytes: %s\n' "$(stat -c %s out/arch/arm64/boot/Image.gz)" >> "$GITHUB_WORKSPACE/report/abi-report.txt"
           printf 'Built module count: %s\n' "$(find out -type f -name '*.ko' | wc -l)" >> "$GITHUB_WORKSPACE/report/abi-report.txt"
+          # Capture the actual module structure that feeds the module_layout CRC.
+          pahole -C module out/vmlinux > "$GITHUB_WORKSPACE/report/r10-struct-module.txt"
+          {
+            for opt in CFI_CLANG MODULES_TREE_LOOKUP DEBUG_INFO_BTF_MODULES SYSFS GENERIC_BUG KALLSYMS SMP TRACEPOINTS TREE_SRCU BPF_EVENTS JUMP_LABEL TRACING EVENT_TRACING MODULE_UNLOAD FUNCTION_ERROR_INJECTION LIVEPATCH CONSTRUCTORS KPROBES HAVE_STATIC_CALL_INLINE STACKTRACE_BUILD_ID; do
+              grep -E "^(CONFIG_${opt}=|# CONFIG_${opt} is not set)" out/.config || true
+            done
+          } > "$GITHUB_WORKSPACE/report/module-abi-config.txt"
+          symtypes="$(find out -type f -name 'module.symtypes' -print -quit)"
+          if [ -n "$symtypes" ]; then
+            grep -F 'module_layout' "$symtypes" > "$GITHUB_WORKSPACE/report/module-layout.symtypes" || true
+          fi
+          awk '$2 == "module_layout" {print}' out/Module.symvers > "$GITHUB_WORKSPACE/report/module-layout-crc.txt"
+          test -s "$GITHUB_WORKSPACE/report/r10-struct-module.txt"
+          test -s "$GITHUB_WORKSPACE/report/module-layout-crc.txt"
 
       - name: Upload compact diagnostic report only
         uses: actions/upload-artifact@v4
