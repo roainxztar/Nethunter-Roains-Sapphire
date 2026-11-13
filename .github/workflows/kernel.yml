@@ -158,6 +158,15 @@ jobs:
           require "CONFIG_NFSD=m"
           require "CONFIG_MEDIA_SDR_SUPPORT=y"
           require "CONFIG_DVB_CORE=m"
+          require "CONFIG_DVB_USB_V2=m"
+          require "CONFIG_DVB_USB_RTL28XXU=m"
+          require "CONFIG_DVB_RTL2832=m"
+          require "CONFIG_DVB_RTL2832_SDR=m"
+          require "CONFIG_MEDIA_USB_SUPPORT=y"
+          require "CONFIG_MEDIA_SUPPORT=y"
+          require "CONFIG_USB_CONFIGFS_F_HID=y"
+          require "CONFIG_USB_CONFIGFS_F_FS=y"
+          require "CONFIG_USB_CONFIGFS_MASS_STORAGE=y"
 
           python3 scripts/verify_abi.py \
             --symvers "$SYMVERS" \
