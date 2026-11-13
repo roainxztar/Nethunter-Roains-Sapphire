@@ -1,5 +1,15 @@
 # Roains-Nethunter-Sapphire
 
+> ## ⚠️ IMPORTANT — READ BEFORE BUILDING OR FLASHING
+>
+> **This project is for the Sapphire device family (Xiaomi Redmi Note 13 4G). It is not intended to be exclusive to ProjectRYU 3 Android 16.** The goal is to use the **Nethunter-Roains-Sapphire kernel project** on other compatible Sapphire ROMs and Android versions too (for example, Android 15 or Android 16).
+>
+> **A different ROM or Android version may require a separate kernel build and/or a ROM-specific flashable ZIP.** Do not assume that the currently compiled kernel or ZIP for ProjectRYU 3 Android 16 will work on another ROM.
+>
+> Before adapting the package for another ROM, inspect that ROM's own `boot.img`, `vendor_boot.img` and `init_boot.img` (if present), then verify the kernel source/ABI, vendor compatibility, modules, device tree, boot-image layout and partition requirements. Reuse the compiled kernel only when those checks show it is compatible; otherwise build a suitable kernel for the target environment.
+>
+> **Device target remains Sapphire.** ROM/Android-version compatibility must be verified separately for each target. An untested ROM must not be described as supported or safe to flash.
+
 A custom NetHunter-oriented Linux kernel project for the Xiaomi Redmi Note 13 4G family.
 
 - **Project:** Roains-Nethunter-Sapphire
