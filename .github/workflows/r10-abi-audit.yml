@@ -1,0 +1,146 @@
+name: Zepharo R10 ABI baseline audit
+
+on:
+  push:
+    branches: [r10-kmi-audit]
+    paths:
+      - ".github/workflows/r10-abi-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r10-kmi-audit
+  cancel-in-progress: false
+
+jobs:
+  build-r10-baseline:
+    name: Build pinned R10 baseline and export Module.symvers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout audit workflow
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential cpio curl dwarves flex gcc-aarch64-linux-gnu git libelf-dev libncurses-dev libssl-dev make pahole python3 python-is-python3 rsync zstd
+          sudo apt-get install -y aria2
+
+      - name: Download the exact Cirrus Clang 24.0.0 toolchain used by the R10 build
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/toolchain"
+          curl -fL --retry 3 -o "$GITHUB_WORKSPACE/toolchain/cirrus-clang.tar.gz" "https://github.com/greenforce-project/greenforce_clang/releases/download/20260912/gf-clang-24.0.0-20260912.tar.gz"
+          echo "33dc3bfa3a5c9c56797f218de8a33d1a85719c3219cebfd5818bcba9933ea961  $GITHUB_WORKSPACE/toolchain/cirrus-clang.tar.gz" | sha256sum -c -
+          mkdir -p "$GITHUB_WORKSPACE/clang"
+          tar -xzf "$GITHUB_WORKSPACE/toolchain/cirrus-clang.tar.gz" -C "$GITHUB_WORKSPACE/clang"
+          CLANG_BIN="$(find "$GITHUB_WORKSPACE/clang" -type f -name clang -path '*/bin/clang' -print -quit | xargs -r dirname)"
+          test -x "$CLANG_BIN/clang"
+          echo "$CLANG_BIN" >> "$GITHUB_PATH"
+          echo "CLANG_BIN=$CLANG_BIN" >> "$GITHUB_ENV"
+          clang --version
+          ld.lld --version
+
+      - name: Fetch the exact kernel source revision reported by the running ProjectRYU kernel
+        run: |
+          set -euo pipefail
+          git init kernel
+          git -C kernel remote add origin https://github.com/topnotchfreaks/kernel_msm-5.15.git
+          git -C kernel fetch --depth=1 origin d246c8c17548bb1a2756092cabf34d11eedcde8c
+          git -C kernel checkout --detach FETCH_HEAD
+          test "$(git -C kernel rev-parse HEAD)" = "d246c8c17548bb1a2756092cabf34d11eedcde8c"
+          test "$(make -s -C kernel kernelversion)" = "5.15.216"
+          git -C kernel log -1 --format=fuller | tee source-revision.txt
+
+      - name: Configure the R10 baseline with ProjectRYU's observed HZ and optimization
+        working-directory: kernel
+        run: |
+          set -euo pipefail
+          export PATH="$CLANG_BIN:$PATH"
+          make O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- unified_defconfig
+
+          scripts/config --file out/.config --set-str LOCALVERSION "-Nethunter-Roains-Sapphire"
+          scripts/config --file out/.config --disable LOCALVERSION_AUTO
+
+          # ProjectRYU's captured running config reports HZ=250 and O2,
+          # unlike the public R10 unified_defconfig defaults (HZ=300 and O3).
+          scripts/config --file out/.config --disable HZ_300
+          scripts/config --file out/.config --enable HZ_250
+          scripts/config --file out/.config --set-val HZ 250
+          scripts/config --file out/.config --disable CC_OPTIMIZE_FOR_PERFORMANCE_O3
+          scripts/config --file out/.config --enable CC_OPTIMIZE_FOR_PERFORMANCE
+
+          # Keep the baseline aligned with the captured running kernel:
+          # cfg80211/mac80211 are disabled there. NetHunter additions come later.
+          scripts/config --file out/.config --disable CFG80211
+          scripts/config --file out/.config --disable MAC80211
+
+          make O=out ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- olddefconfig
+
+          grep -q '^CONFIG_MODULES=y$' out/.config
+          grep -q '^CONFIG_MODVERSIONS=y$' out/.config
+          grep -q '^CONFIG_LTO_CLANG_FULL=y$' out/.config
+          grep -q '^CONFIG_CFI_CLANG=y$' out/.config
+          grep -q '^CONFIG_SHADOW_CALL_STACK=y$' out/.config
+          grep -q '^CONFIG_HZ_250=y$' out/.config
+          grep -q '^CONFIG_HZ=250$' out/.config
+          grep -q '^CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y$' out/.config
+          ! grep -q '^CONFIG_CFG80211=y$' out/.config
+          ! grep -q '^CONFIG_MAC80211=y$' out/.config
+          ! grep -q '^CONFIG_KSU=y$' out/.config
+
+          mkdir -p "$GITHUB_WORKSPACE/build-output"
+          cp out/.config "$GITHUB_WORKSPACE/build-output/kernel.config"
+          sha256sum out/.config | tee "$GITHUB_WORKSPACE/build-output/config.sha256"
+
+      - name: Build Image.gz and all configured modules
+        working-directory: kernel
+        run: |
+          set -euo pipefail
+          export PATH="$CLANG_BIN:$PATH"
+          JOBS="$(nproc --all)"
+          echo "Build jobs: $JOBS"
+          free -h
+          make -j"$JOBS" O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- CC=clang AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip Image.gz modules
+
+          test -s out/Module.symvers
+          test -s out/arch/arm64/boot/Image.gz
+          KERNEL_RELEASE="$(cat out/include/config/kernel.release)"
+          mkdir -p "$GITHUB_WORKSPACE/staging"
+          make -j"$JOBS" O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- CC=clang AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy STRIP=llvm-strip INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
+          depmod -b "$GITHUB_WORKSPACE/staging" "$KERNEL_RELEASE"
+
+          MODULE_LAYOUT_CRC="$(awk '$2 == "module_layout" {print $1; exit}' out/Module.symvers)"
+          test -n "$MODULE_LAYOUT_CRC"
+          if [ "$MODULE_LAYOUT_CRC" = "0x0222dd63" ]; then
+            ABI_STATUS="MATCH"
+          else
+            ABI_STATUS="MISMATCH"
+          fi
+
+          mkdir -p "$GITHUB_WORKSPACE/build-output"
+          cp out/Module.symvers "$GITHUB_WORKSPACE/build-output/Module.symvers"
+          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/Image.gz"
+          cp source-revision.txt "$GITHUB_WORKSPACE/build-output/"
+          KERNEL_RELEASE="$KERNEL_RELEASE" MODULE_LAYOUT_CRC="$MODULE_LAYOUT_CRC" ABI_STATUS="$ABI_STATUS" bash -c '{
+            echo "source=d246c8c17548bb1a2756092cabf34d11eedcde8c"
+            echo "kernel_release=$KERNEL_RELEASE"
+            echo "module_layout_crc=$MODULE_LAYOUT_CRC"
+            echo "stock_projectryu_module_layout_crc=0x0222dd63"
+            echo "module_layout_status=$ABI_STATUS"
+            echo "clang=$(clang --version | head -n 1)"
+            echo "lld=$(ld.lld --version | head -n 1)"
+          }' | tee "$GITHUB_WORKSPACE/build-output/abi-result.txt"
+
+          cp -a "$GITHUB_WORKSPACE/staging/lib/modules" "$GITHUB_WORKSPACE/build-output/"
+
+      - name: Upload R10 ABI audit outputs (no installer, no AnyKernel)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Roains-Nethunter-Sapphire-R10-ABI-baseline
+          path: build-output/
+          if-no-files-found: error
+          retention-days: 14
