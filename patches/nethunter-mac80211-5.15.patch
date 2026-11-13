@@ -1,42 +1,20 @@
-From c367a7f7c16833656ae61c3839b9487e1cb5a0d2 Mon Sep 17 00:00:00 2001
-From: Kali NetHunter kernel-builder (adapted for 5.15 GKI)
-Date: Wed, 08 Feb 2023 12:21:50 +0000
-Subject: [PATCH] WiFi frame injection + monitor channel override (adapted for Linux 5.15)
+From 12b33a577bf5bdd5e86ae15424ae5633ff9684af Mon Sep 17 00:00:00 2001
+From: Roains-Nethunter-Sapphire
+Subject: [PATCH] NetHunter mac80211 frame injection support
 
-Kernel-version: 5.15 (5.15.0-5.15.xxx Android GKI common)
-Base-patch:  patches/4.14/add-wifi-injection-4.14.patch
-Reason-for-change:
-  - Upstream 5.15 mac80211/cfg80211 retained the exact same code paths as 4.14
-    for ieee80211_tx_h_sequence(), ieee80211_xmit() and cfg80211_set_monitor_channel().
-    Only line offsets shifted. This file pins the exact 5.15 context hunks so
-    `git apply` succeeds cleanly.
-  - Preserves all original NetHunter capabilities: injected-frame sequence-number
-    preservation, forced NO_ACK on injected frames, monitor-mode QoS-header
-    bypass, and unconditional monitor channel change (even with a STA/AP vif up).
+Target: Linux 5.15.211 Zepharo R9 source baseline.
 
-Signed-off-by: yesimxev <yesimxev@gitlab.com>
+Applies only to mac80211 TX handling:
+- preserve sequence numbers for injected monitor frames
+- set NO_ACK for injected frames where appropriate
+- skip normal QoS header insertion for monitor-mode frames
+
+Intentionally excludes cfg80211 channel-policy changes and adapter-specific
+RTL8187/ZD1211RW changes. The ROM's existing cfg80211 vendor module and
+Qualcomm QCA WLAN stack are retained; external adapter drivers are built
+separately by the user.
+
 ---
- drivers/net/wireless/realtek/rtl818x/rtl8187/dev.c | 11 ++++++++++-
- drivers/net/wireless/zydas/zd1211rw/zd_mac.c             | 18 ++++++++++++------
- net/mac80211/cfg.c                                |  3 ++-
- net/mac80211/tx.c                                 | 19 +++++++++++++++----
- net/wireless/chan.c                               |  6 ++++--
- 5 files changed, 43 insertions(+), 14 deletions(-)
-
-diff --git a/net/mac80211/cfg.c b/net/mac80211/cfg.c
-index c5be6bf2f00d..fa005b2c5e05 100644
---- a/net/mac80211/cfg.c
-+++ b/net/mac80211/cfg.c
-@@ -816,7 +816,8 @@ static int ieee80211_set_monitor_channel(struct wiphy *wiphy,
- 			ret = ieee80211_vif_use_channel(sdata, chandef,
- 					IEEE80211_CHANCTX_EXCLUSIVE);
- 		}
--	} else if (local->open_count == local->monitors) {
-+       // Patch: Always allow channel change, even if a normal virtual interface is present
-+       } else /*if (local->open_count == local->monitors)*/ {
- 		local->_oper_chandef = *chandef;
- 		ieee80211_hw_config(local, 0);
- 	}
 diff --git a/net/mac80211/tx.c b/net/mac80211/tx.c
 index 89eb87474fdf..3036b90abcf9 100644
 --- a/net/mac80211/tx.c
