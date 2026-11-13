@@ -1,0 +1,78 @@
+From c367a7f7c16833656ae61c3839b9487e1cb5a0d2 Mon Sep 17 00:00:00 2001
+From: Kali NetHunter kernel-builder (adapted for 5.15 GKI)
+Date: Wed, 08 Feb 2023 12:21:50 +0000
+Subject: [PATCH] WiFi frame injection + monitor channel override (adapted for Linux 5.15)
+
+Kernel-version: 5.15 (5.15.0-5.15.xxx Android GKI common)
+Base-patch:  patches/4.14/add-wifi-injection-4.14.patch
+Reason-for-change:
+  - Upstream 5.15 mac80211/cfg80211 retained the exact same code paths as 4.14
+    for ieee80211_tx_h_sequence(), ieee80211_xmit() and cfg80211_set_monitor_channel().
+    Only line offsets shifted. This file pins the exact 5.15 context hunks so
+    `git apply` succeeds cleanly.
+  - Preserves all original NetHunter capabilities: injected-frame sequence-number
+    preservation, forced NO_ACK on injected frames, monitor-mode QoS-header
+    bypass, and unconditional monitor channel change (even with a STA/AP vif up).
+
+Signed-off-by: yesimxev <yesimxev@gitlab.com>
+---
+ drivers/net/wireless/realtek/rtl818x/rtl8187/dev.c | 11 ++++++++++-
+ drivers/net/wireless/zydas/zd1211rw/zd_mac.c             | 18 ++++++++++++------
+ net/mac80211/cfg.c                                |  3 ++-
+ net/mac80211/tx.c                                 | 19 +++++++++++++++----
+ net/wireless/chan.c                               |  6 ++++--
+ 5 files changed, 43 insertions(+), 14 deletions(-)
+
+diff --git a/net/mac80211/cfg.c b/net/mac80211/cfg.c
+index c5be6bf2f00d..fa005b2c5e05 100644
+--- a/net/mac80211/cfg.c
++++ b/net/mac80211/cfg.c
+@@ -816,7 +816,8 @@ static int ieee80211_set_monitor_channel(struct wiphy *wiphy,
+ 			ret = ieee80211_vif_use_channel(sdata, chandef,
+ 					IEEE80211_CHANCTX_EXCLUSIVE);
+ 		}
+-	} else if (local->open_count == local->monitors) {
++       // Patch: Always allow channel change, even if a normal virtual interface is present
++       } else /*if (local->open_count == local->monitors)*/ {
+ 		local->_oper_chandef = *chandef;
+ 		ieee80211_hw_config(local, 0);
+ 	}
+diff --git a/net/mac80211/tx.c b/net/mac80211/tx.c
+index 89eb87474fdf..3036b90abcf9 100644
+--- a/net/mac80211/tx.c
++++ b/net/mac80211/tx.c
+@@ -799,11 +799,19 @@ ieee80211_tx_h_sequence(struct ieee80211_tx_data *tx)
+ 
+ 	/*
+ 	 * Packet injection may want to control the sequence
+-	 * number, if we have no matching interface then we
+-	 * neither assign one ourselves nor ask the driver to.
++	 * number, so if an injected packet is found, skip
++	 * renumbering it. Also make the packet NO_ACK to avoid
++	 * excessive retries (ACKing and retrying should be
++	 * handled by the injecting application).
++	 * FIXME This may break hostapd and some other injectors.
++	 * This should be done using a radiotap flag.
+ 	 */
+-	if (unlikely(info->control.vif->type == NL80211_IFTYPE_MONITOR))
++	if (unlikely((info->flags & IEEE80211_TX_CTL_INJECTED) &&
++	   !(tx->sdata->u.mntr.flags & MONITOR_FLAG_COOK_FRAMES))) {
++		if (!ieee80211_has_morefrags(hdr->frame_control))
++			info->flags |= IEEE80211_TX_CTL_NO_ACK;
+ 		return TX_CONTINUE;
++	}
+ 
+ 	if (unlikely(ieee80211_is_ctl(hdr->frame_control)))
+ 		return TX_CONTINUE;
+@@ -2004,7 +2012,10 @@ void ieee80211_xmit(struct ieee80211_sub_if_data *sdata,
+ 		}
+ 	}
+ 
+-	ieee80211_set_qos_hdr(sdata, skb);
++        // Don't overwrite QoS header in monitor mode
++        if (likely(info->control.vif->type != NL80211_IFTYPE_MONITOR)) {
++            ieee80211_set_qos_hdr(sdata, skb);
++        }
+ 	ieee80211_tx(sdata, sta, skb, false);
+ }
+ 
