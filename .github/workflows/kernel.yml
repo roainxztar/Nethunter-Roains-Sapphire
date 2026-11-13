@@ -128,6 +128,31 @@ jobs:
           restore-keys: |
             ccache-${{ runner.os }}-r9-5.15.211-
 
+      - name: Record runner resource baseline
+        run: |
+          set -u
+          mkdir -p diagnostics
+          {
+            echo "=== timestamp ==="
+            date -Is
+            echo "=== runner ==="
+            uname -a
+            nproc
+            echo "=== memory ==="
+            free -h
+            cat /proc/meminfo
+            echo "=== swap ==="
+            swapon --show
+            echo "=== disk ==="
+            df -h
+            echo "=== memory pressure ==="
+            cat /proc/pressure/memory 2>/dev/null || true
+            echo "=== cgroup memory limits/events ==="
+            for f in /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.current /sys/fs/cgroup/memory.events; do
+              if [ -r "$f" ]; then echo "--- $f"; cat "$f"; fi
+            done
+          } > diagnostics/runner-before-build.txt 2>&1
+
       - name: Build kernel and modules with R9 toolchain settings
         env:
           CCACHE_DIR: ${{ github.workspace }}/.ccache
@@ -144,6 +169,29 @@ jobs:
           BUILD_CONFIG="common_gki/common/build.config.gki.aarch64" \
           CC="ccache clang" LTO=full build/build.sh -j"$(nproc)"
           ccache -s
+
+      - name: Capture runner termination diagnostics
+        if: always()
+        run: |
+          set -u
+          mkdir -p diagnostics
+          {
+            echo "=== timestamp ==="
+            date -Is
+            echo "=== memory ==="
+            free -h
+            cat /proc/meminfo
+            echo "=== swap ==="
+            swapon --show
+            echo "=== memory pressure ==="
+            cat /proc/pressure/memory 2>/dev/null || true
+            echo "=== cgroup memory limits/events ==="
+            for f in /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.current /sys/fs/cgroup/memory.events; do
+              if [ -r "$f" ]; then echo "--- $f"; cat "$f"; fi
+            done
+            echo "=== kernel OOM / kill messages (if permitted) ==="
+            sudo dmesg --ctime 2>/dev/null | grep -Ei 'out of memory|oom-kill|killed process|memory cgroup' | tail -n 100 || true
+          } > diagnostics/runner-after-build.txt 2>&1
 
       - name: Capture generated kernel config
         if: always()
