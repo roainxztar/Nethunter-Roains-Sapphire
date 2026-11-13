@@ -42,6 +42,11 @@ done
 "$CFG" --file "$DEFCONFIG" --enable NFSD_V3
 "$CFG" --file "$DEFCONFIG" --enable NFSD_V4
 
+# External Realtek USB Wi-Fi driver from the sapphire injection port.
+# Build rtl8xxxu as a module; retain the ROM-provided cfg80211 provider.
+"$CFG" --file "$DEFCONFIG" --module RTL8XXXU
+"$CFG" --file "$DEFCONFIG" --enable RTL8XXXU_UNTESTED
+
 # SDR / RTL-SDR support. Do not build external USB Wi-Fi adapter drivers.
 "$CFG" --file "$DEFCONFIG" --enable MEDIA_SUPPORT
 "$CFG" --file "$DEFCONFIG" --enable MEDIA_USB_SUPPORT
