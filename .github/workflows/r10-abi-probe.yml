@@ -24,7 +24,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache cpio curl flex git gcc-aarch64-linux-gnu libelf-dev libssl-dev libncurses-dev lld pahole python3 rsync kmod zstd
+          sudo apt-get install -y bc bison build-essential ccache cpio curl flex git gcc-aarch64-linux-gnu libelf-dev libssl-dev libncurses-dev lld pahole python3 rsync kmod zstd zip
 
       - name: Configure swap
         uses: pierotofy/set-swap-space@fc79b3f67fa8a838184ce84a674ca12238d2c761
@@ -95,9 +95,6 @@ jobs:
           "${cfg[@]}" --set-str LOCALVERSION "-Nethunter-Roains-Sapphire"
           "${cfg[@]}" --disable LOCALVERSION_AUTO
           "${cfg[@]}" --disable KPROFILES
-
-          # The embedded ProjectRYU config points to a buildbot-only ABI list.
-          # Disable symbol trimming; keep MODVERSIONS enabled and compare CRCs.
           "${cfg[@]}" --disable TRIM_UNUSED_KSYMS
           "${cfg[@]}" --set-str UNUSED_KSYMS_WHITELIST ""
 
@@ -174,16 +171,52 @@ jobs:
             fi
           } >> "$GITHUB_WORKSPACE/build-output/abi-report.txt"
 
-          make O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld \
-            INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
+          make O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
           release="$(cat out/include/config/kernel.release)"
           depmod -b "$GITHUB_WORKSPACE/staging" "$release"
-          cp -a "$GITHUB_WORKSPACE/staging/lib/modules" "$GITHUB_WORKSPACE/build-output/"
 
-      - name: Upload ABI probe outputs (not flashable)
+          # Do not copy modules_install wholesale: its build/ and source/
+          # symlinks can make artifact upload traverse the entire kernel tree.
+          # Keep only real module files and the small depmod metadata files.
+          modsrc="$GITHUB_WORKSPACE/staging/lib/modules/$release"
+          moddst="$GITHUB_WORKSPACE/build-output/modules/$release"
+          mkdir -p "$moddst"
+          while IFS= read -r -d '' module; do
+            rel="${module#"$modsrc"/}"
+            mkdir -p "$moddst/$(dirname "$rel")"
+            cp "$module" "$moddst/$rel"
+          done < <(find "$modsrc" -type f -name '*.ko' -print0)
+
+          for meta in modules.dep modules.dep.bin modules.alias modules.alias.bin modules.symbols modules.symbols.bin modules.softdep modules.order modules.builtin modules.builtin.modinfo modules.devname; do
+            if [ -f "$modsrc/$meta" ]; then
+              cp "$modsrc/$meta" "$moddst/$meta"
+            fi
+          done
+
+          test -n "$(find "$moddst" -type f -name '*.ko' -print -quit)"
+          {
+            echo "Kernel release: $release"
+            echo "Module files: $(find "$moddst" -type f -name '*.ko' | wc -l)"
+            echo "Module payload size: $(du -sh "$moddst" | cut -f1)"
+            echo "Build/source symlinks excluded: yes"
+          } >> "$GITHUB_WORKSPACE/build-output/abi-report.txt"
+
+      - name: Create compact probe ZIP
+        run: |
+          set -euo pipefail
+          cd build-output
+          zip -9 -r "Roains-Nethunter-Sapphire-Zepharo-R10-compact-probe.zip" \
+            Image.gz Module.symvers kernel.config config-diff.txt abi-report.txt modules
+          zipinfo -1 "Roains-Nethunter-Sapphire-Zepharo-R10-compact-probe.zip" | grep -q '/.*\.ko$'
+          ls -lh "Roains-Nethunter-Sapphire-Zepharo-R10-compact-probe.zip" | tee zip-size.txt
+
+      - name: Upload compact probe package (not flashable)
         uses: actions/upload-artifact@v4
         with:
-          name: Roains-Nethunter-Sapphire-Zepharo-R10-ABI-probe
-          path: build-output/
+          name: Roains-Nethunter-Sapphire-Zepharo-R10-compact-probe
+          path: |
+            build-output/Roains-Nethunter-Sapphire-Zepharo-R10-compact-probe.zip
+            build-output/abi-report.txt
+            build-output/zip-size.txt
           if-no-files-found: error
           retention-days: 14
