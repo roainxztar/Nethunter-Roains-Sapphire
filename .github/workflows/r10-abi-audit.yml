@@ -37,8 +37,14 @@ jobs:
           echo "33dc3bfa3a5c9c56797f218de8a33d1a85719c3219cebfd5818bcba9933ea961  $GITHUB_WORKSPACE/toolchain/cirrus-clang.tar.gz" | sha256sum -c -
           mkdir -p "$GITHUB_WORKSPACE/clang"
           tar -xzf "$GITHUB_WORKSPACE/toolchain/cirrus-clang.tar.gz" -C "$GITHUB_WORKSPACE/clang"
-          CLANG_BIN="$(find "$GITHUB_WORKSPACE/clang" -type f -name clang -path '*/bin/clang' -print -quit | xargs -r dirname)"
+          if [ -x "$GITHUB_WORKSPACE/clang/bin/clang" ]; then
+            CLANG_BIN="$GITHUB_WORKSPACE/clang/bin"
+          else
+            CLANG_BIN="$(find "$GITHUB_WORKSPACE/clang" -type d -name bin -print -quit)"
+          fi
+          test -n "$CLANG_BIN"
           test -x "$CLANG_BIN/clang"
+          ls -l "$CLANG_BIN/clang" "$CLANG_BIN/ld.lld"
           echo "$CLANG_BIN" >> "$GITHUB_PATH"
           echo "CLANG_BIN=$CLANG_BIN" >> "$GITHUB_ENV"
           export PATH="$CLANG_BIN:$PATH"
