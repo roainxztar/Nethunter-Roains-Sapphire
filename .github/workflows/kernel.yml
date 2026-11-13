@@ -116,6 +116,31 @@ jobs:
           require() { grep -qx "$1" "$CONFIG" || { echo "Missing final config: $1"; exit 1; }; }
           require "CONFIG_MODULES=y"
           require "CONFIG_MODVERSIONS=y"
+          require "CONFIG_CFI_CLANG=y"
+          require "CONFIG_SHADOW_CALL_STACK=y"
+          require "CONFIG_LTO_CLANG_FULL=y"
+          require "CONFIG_CGROUPS=y"
+          require "CONFIG_MEMCG=y"
+          require "CONFIG_CGROUP_FREEZER=y"
+          require "CONFIG_CPUSETS=y"
+          require "CONFIG_CGROUP_SCHED=y"
+          require "CONFIG_CGROUP_CPUACCT=y"
+          require "CONFIG_BPF_SYSCALL=y"
+          require "CONFIG_SECCOMP=y"
+          require "CONFIG_SECCOMP_FILTER=y"
+          require "CONFIG_NET_NS=y"
+          require "CONFIG_UTS_NS=y"
+          require "CONFIG_TUN=y"
+          require "CONFIG_VETH=y"
+          require "CONFIG_OVERLAY_FS=y"
+          require "CONFIG_FUSE_FS=y"
+          require "CONFIG_BLK_DEV_LOOP=y"
+          require "CONFIG_BLK_DEV_DM=y"
+          require "CONFIG_DM_CRYPT=y"
+          require "CONFIG_NETFILTER=y"
+          require "CONFIG_NF_CONNTRACK=y"
+          require "CONFIG_IP_NF_NAT=y"
+          require "CONFIG_IP6_NF_NAT=y"
           require 'CONFIG_LOCALVERSION="-Nethunter-Roains-Sapphire"'
           require "# CONFIG_LOCALVERSION_AUTO is not set"
           require "CONFIG_CFG80211=m"
@@ -158,7 +183,7 @@ jobs:
           # Package only the new feature modules. Keep the ROM's cfg80211.ko
           # and Qualcomm vendor WLAN modules untouched.
           for MOD in mac80211.ko vcan.ko vxcan.ko slcan.ko nfs.ko nfsv3.ko nfsv4.ko nfsd.ko \
-                     dvb-core.ko dvb-usb-v2.ko dvb-usb-rtl28xxu.ko rtl2832.ko rtl2832_sdr.ko; do
+                     dvb-core.ko dvb_usb_v2.ko dvb-usb-rtl28xxu.ko rtl2832.ko rtl2832_sdr.ko; do
             SRC="$(find out -type f -name "$MOD" | head -n1 || true)"
             [ -n "$SRC" ] && cp "$SRC" package/modules/
           done
