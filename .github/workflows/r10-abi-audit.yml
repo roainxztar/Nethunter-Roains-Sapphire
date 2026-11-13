@@ -154,10 +154,15 @@ jobs:
 
           cp -a "$GITHUB_WORKSPACE/staging/lib/modules" "$GITHUB_WORKSPACE/build-output/"
 
-      - name: Upload R10 ABI audit outputs (no installer, no AnyKernel)
+      - name: Upload compact ABI diagnostics only (no kernel payload ZIP)
         uses: actions/upload-artifact@v4
         with:
-          name: Roains-Nethunter-Sapphire-R10-ABI-baseline
-          path: build-output/
+          name: Roains-Nethunter-Sapphire-R10-ABI-report
+          path: |
+            build-output/kernel.config
+            build-output/config.sha256
+            build-output/source-revision.txt
+            build-output/abi-result.txt
           if-no-files-found: error
-          retention-days: 14
+          compression-level: 9
+          retention-days: 7
