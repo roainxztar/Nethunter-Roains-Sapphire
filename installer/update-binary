@@ -93,7 +93,13 @@ done
 if [ -f "$WORK/modules.dep.additions" ]; then
   while IFS= read -r LINE; do
     [ -n "$LINE" ] || continue
-    grep -Fqx "$LINE" "$MODULE_DIR/modules.dep" || echo "$LINE" >> "$MODULE_DIR/modules.dep" || { rollback_modules; abort "Failed to update modules.dep."; }
+    MODULE_NAME="${LINE%%:*}"
+    MODULE_DEPS="${LINE#*:}"
+    UPDATED_LINE="$MODULE_DIR/$MODULE_NAME:"
+    for DEP in $MODULE_DEPS; do
+      UPDATED_LINE="$UPDATED_LINE $MODULE_DIR/$DEP"
+    done
+    grep -Fqx "$UPDATED_LINE" "$MODULE_DIR/modules.dep" || echo "$UPDATED_LINE" >> "$MODULE_DIR/modules.dep" || { rollback_modules; abort "Failed to update modules.dep."; }
   done < "$WORK/modules.dep.additions"
 fi
 if [ -f "$WORK/modules.load.additions" ]; then
