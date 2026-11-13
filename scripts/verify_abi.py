@@ -65,7 +65,10 @@ def main():
         cfg_providers = [(m, c) for m, c in providers if "cfg80211" in m]
         if not cfg_providers: continue
         candidate = [(m, c) for m, c in sym.get(name, []) if "cfg80211" in m]
-        if candidate:
+        if not candidate:
+            cfg_bad += 1
+            errors.append(f"Candidate cfg80211 export missing: {name}")
+        else:
             cfg_checked += 1
             if not any(c == old for _, c in candidate for _, old in cfg_providers):
                 cfg_bad += 1
