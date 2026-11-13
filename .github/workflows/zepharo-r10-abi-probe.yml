@@ -144,4 +144,5 @@ jobs:
           name: R10-ABI-report
           path: report/
           if-no-files-found: error
+          compression-level: 9
           retention-days: 7
