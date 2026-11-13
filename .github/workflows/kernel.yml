@@ -34,7 +34,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y repo rsync aria2 bc bison flex build-essential \
             libelf-dev libssl-dev python3 zip unzip kmod dwarves cpio \
-            device-tree-compiler libncurses-dev lz4 binutils
+            device-tree-compiler libncurses-dev lz4 binutils ccache
 
       - name: Prepare swap
         run: |
@@ -109,13 +109,30 @@ jobs:
           CLANG_VERSION=r450784e
           EOF
 
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-${{ runner.os }}-r9-5.15.211-${{ hashFiles('config/r9-kernel.config.gz.b64', 'scripts/configure_features.sh', 'patches/nethunter-mac80211-5.15.patch') }}
+          restore-keys: |
+            ccache-${{ runner.os }}-r9-5.15.211-
+
       - name: Build kernel and modules with R9 toolchain settings
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
+          CCACHE_COMPILERCHECK: content
+          CCACHE_MAXSIZE: 5G
+          CCACHE_BASEDIR: ${{ github.workspace }}
         run: |
+          set -euo pipefail
+          mkdir -p "$CCACHE_DIR"
+          ccache -z
           ROOT_DIR="$GITHUB_WORKSPACE" \
           KERNEL_DIR="common_gki/common" \
           OUT_DIR="$GITHUB_WORKSPACE/out" \
           BUILD_CONFIG="common_gki/common/build.config.gki.aarch64" \
-          LTO=full build/build.sh
+          CC="ccache clang" LTO=full build/build.sh -j"$(nproc)"
+          ccache -s
 
       - name: Verify final config and module ABI
         run: |
