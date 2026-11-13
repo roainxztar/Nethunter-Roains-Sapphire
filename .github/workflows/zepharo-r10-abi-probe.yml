@@ -140,15 +140,22 @@ jobs:
             echo "Installer: none; this is an ABI probe only"
           } > "$GITHUB_WORKSPACE/build-output/abi-report.txt"
 
+      - name: Apply the R10 builder's compiler compatibility flags
+        working-directory: kernel
+        run: |
+          set -euo pipefail
+          printf '%s\n' \
+            'KBUILD_CFLAGS += -Wno-default-const-init-unsafe' \
+            'KBUILD_CFLAGS += -Wno-uninitialized-const-pointer' \
+            'KBUILD_CFLAGS += -Wno-implicit-function-declaration' \
+            'KBUILD_CFLAGS += -Wno-sometimes-uninitialized' >> Makefile
+
       - name: Compile kernel and modules
         working-directory: kernel
         run: |
           set -euo pipefail
           export PATH="$RUNNER_TEMP/cirrus-clang/bin:$PATH"
-          make -j4 O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld \
-            KCFLAGS="-Wno-default-const-init-unsafe -Wno-uninitialized-const-pointer -Wno-implicit-function-declaration -Wno-sometimes-uninitialized" \
-            KBUILD_CFLAGS="-Wno-default-const-init-unsafe -Wno-uninitialized-const-pointer -Wno-implicit-function-declaration -Wno-sometimes-uninitialized" \
-            Image.gz modules
+          make -j4 O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld Image.gz modules
 
           test -s out/Module.symvers
           test -s out/arch/arm64/boot/Image.gz
