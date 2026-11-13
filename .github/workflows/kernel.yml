@@ -115,7 +115,7 @@ jobs:
           ROOT_DIR="$GITHUB_WORKSPACE" \
           KERNEL_DIR="common_gki/common" \
           OUT_DIR="$GITHUB_WORKSPACE/out" \
-          BUILD_CONFIG="$GITHUB_WORKSPACE/common_gki/common/build.config.gki.aarch64" \
+          BUILD_CONFIG="common_gki/common/build.config.gki.aarch64" \
           LTO=full build/build.sh
 
       - name: Verify final config and module ABI
