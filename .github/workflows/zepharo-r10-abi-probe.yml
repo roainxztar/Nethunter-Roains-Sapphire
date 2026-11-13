@@ -1,0 +1,179 @@
+name: Zepharo R10 NetHunter ABI probe
+
+on:
+  push:
+    branches:
+      - zepharo-r10-abi-probe
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zepharo-r10-abi-probe
+  cancel-in-progress: false
+
+jobs:
+  abi-probe:
+    name: Build pinned R10 source and check module ABI
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout project configuration
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache cpio curl flex git gcc-aarch64-linux-gnu libelf-dev libssl-dev lld pahole python3 rsync kmod
+
+      - name: Configure swap
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 20
+
+      - name: Fetch the exact Zepharo R10 source commit
+        run: |
+          set -euo pipefail
+          git init kernel
+          git -C kernel remote add origin https://github.com/topnotchfreaks/kernel_msm-5.15.git
+          git -C kernel fetch --depth=1 origin d246c8c17548bb1a2756092cabf34d11eedcde8c
+          git -C kernel checkout --detach FETCH_HEAD
+          git -C kernel submodule update --init --recursive --depth 1
+          test "$(git -C kernel rev-parse --short=12 HEAD)" = "d246c8c17548"
+          test "$(make -s -C kernel kernelversion)" = "5.15.216"
+          echo "Pinned source: $(git -C kernel rev-parse HEAD)"
+          echo "Kernel version: $(make -s -C kernel kernelversion)"
+
+      - name: Install the exact Cirrus Clang 24.0.0 toolchain
+        run: |
+          set -euo pipefail
+          url="https://github.com/greenforce-project/greenforce_clang/releases/download/20260912/gf-clang-24.0.0-20260912.tar.gz"
+          curl -L --fail --retry 3 "$url" -o "$RUNNER_TEMP/cirrus-clang.tar.gz"
+          echo "33dc3bfa3a5c9c56797f218de8a33d1a85719c3219cebfd5818bcba9933ea961  $RUNNER_TEMP/cirrus-clang.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/cirrus-clang"
+          tar -xzf "$RUNNER_TEMP/cirrus-clang.tar.gz" -C "$RUNNER_TEMP/cirrus-clang"
+          test -x "$RUNNER_TEMP/cirrus-clang/bin/clang"
+          echo "$RUNNER_TEMP/cirrus-clang/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/cirrus-clang/bin/clang" --version | tee clang-version.txt
+          grep -q "c1100cd94b7b89db8c0929192e80aeaea95bc30e" clang-version.txt
+
+      - name: Fetch and apply the pinned NetHunter 5.15 injection patch
+        run: |
+          set -euo pipefail
+          git init nethunter-patches
+          git -C nethunter-patches remote add origin https://github.com/roainxztar/kali-nethunter-kernel-patches.git
+          git -C nethunter-patches fetch --depth=1 origin edbdeaa9ed2fca159e654a86638096813352024b
+          git -C nethunter-patches checkout --detach FETCH_HEAD
+          patch_file="$GITHUB_WORKSPACE/nethunter-patches/adapted/5.15/add-wifi-injection-5.15.patch"
+          test -s "$patch_file"
+          git -C kernel apply --check --whitespace=nowarn "$patch_file"
+          git -C kernel apply --whitespace=fix "$patch_file"
+          git -C kernel diff --check
+          git -C kernel diff --stat | tee patch-integration.txt
+          grep -q "ieee80211_tx_h_sequence" <(git -C kernel diff -- net/mac80211/tx.c)
+          echo "NetHunter 5.15 injection patch applied and verified." | tee -a patch-integration.txt
+
+      - name: Configure from the device's embedded Sapphire baseline
+        working-directory: kernel
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/cirrus-clang/bin:$PATH"
+          args="-j4 O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld"
+          make $args khaje-stock_defconfig
+
+          cfg=(scripts/config --file out/.config)
+          "\${cfg[@]}" --set-str LOCALVERSION "-Nethunter-Roains-Sapphire"
+          "\${cfg[@]}" --disable LOCALVERSION_AUTO
+          "\${cfg[@]}" --disable KPROFILES
+
+          # NetHunter wireless injection base. Adapter-specific USB Wi-Fi
+          # drivers are intentionally not built; the user installs those manually.
+          "\${cfg[@]}" --module CFG80211
+          "\${cfg[@]}" --module MAC80211
+
+          # Container and chroot features missing from the embedded baseline.
+          for opt in SYSVIPC IPC_NS PID_NS USER_NS CGROUP_PIDS CGROUP_DEVICE; do
+            "\${cfg[@]}" --enable "$opt"
+          done
+
+          # Additional NetHunter networking support missing from the baseline.
+          for opt in BRIDGE_NETFILTER NF_TABLES IP6_NF_NAT; do
+            "\${cfg[@]}" --enable "$opt"
+          done
+
+          # USB HID is already enabled in the baseline; add RNDIS networking.
+          "\${cfg[@]}" --enable USB_CONFIGFS_RNDIS
+
+          # Optional NetHunter peripherals as modules.
+          for opt in NFS_FS NFSD BT_HCIBTUSB BT_HCIBTUSB_BCM BT_HCIBTUSB_RTL BT_HCIBTUSB_MTK BT_HCIUART BT_HCIUART_H4 BT_HCIUART_QCA BT_RFCOMM BT_HIDP CAN_RAW CAN_BCM CAN_GW CAN_VCAN CAN_VXCAN CAN_SLCAN DVB_USB_RTL28XXU DVB_RTL2832_SDR; do
+            "\${cfg[@]}" --module "$opt" || true
+          done
+          for opt in CAN MEDIA_SDR_SUPPORT VIDEO_DEV VIDEO_V4L2 DVB_CORE DVB_USB_V2 I2C I2C_MUX VIDEOBUF2_VMALLOC; do
+            "\${cfg[@]}" --enable "$opt" || true
+          done
+
+          make $args olddefconfig
+          mkdir -p "$GITHUB_WORKSPACE/build-output"
+          cp out/.config "$GITHUB_WORKSPACE/build-output/kernel.config"
+          scripts/diffconfig arch/arm64/configs/khaje-stock_defconfig out/.config > "$GITHUB_WORKSPACE/build-output/config-diff.txt" || true
+
+          grep -q '^CONFIG_MODVERSIONS=y$' out/.config
+          grep -q '^CONFIG_MODULES=y$' out/.config
+          grep -q '^CONFIG_LTO_CLANG_FULL=y$' out/.config
+          grep -q '^CONFIG_CFI_CLANG=y$' out/.config
+          grep -q '^CONFIG_SHADOW_CALL_STACK=y$' out/.config
+          grep -q '^CONFIG_MODULE_SIG_PROTECT=y$' out/.config
+          grep -q '^CONFIG_CFG80211=m$' out/.config
+          grep -q '^CONFIG_MAC80211=m$' out/.config
+          ! grep -q '^CONFIG_KSU=y$' out/.config
+          ! grep -q '^CONFIG_KERNELSU=y$' out/.config
+          grep -q '^CONFIG_LOCALVERSION="-Nethunter-Roains-Sapphire"$' out/.config
+          ! grep -q '^CONFIG_LOCALVERSION_AUTO=y$' out/.config
+
+          {
+            echo "Source commit: $(git rev-parse HEAD)"
+            echo "Kernel version: $(make -s kernelversion)"
+            echo "Kernel release: $(cat out/include/config/kernel.release)"
+            echo "Compiler: $(clang --version | head -n 1)"
+            echo "module_layout CRC: pending build"
+            echo "KSU config: absent"
+            echo "Installer: none; this is an ABI probe only"
+          } > "$GITHUB_WORKSPACE/build-output/abi-report.txt"
+
+      - name: Compile kernel and modules
+        working-directory: kernel
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/cirrus-clang/bin:$PATH"
+          make -j4 O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld \
+            KCFLAGS="-Wno-default-const-init-unsafe -Wno-uninitialized-const-pointer -Wno-implicit-function-declaration -Wno-sometimes-uninitialized" \
+            KBUILD_CFLAGS="-Wno-default-const-init-unsafe -Wno-uninitialized-const-pointer -Wno-implicit-function-declaration -Wno-sometimes-uninitialized" \
+            Image.gz modules
+
+          test -s out/Module.symvers
+          test -s out/arch/arm64/boot/Image.gz
+          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/"
+          cp out/Module.symvers "$GITHUB_WORKSPACE/build-output/Module.symvers"
+          crc="$(awk '$2 == "module_layout" {print $1}' out/Module.symvers)"
+          {
+            echo "module_layout CRC: $crc"
+            if [ "$crc" = "0x0222dd63" ]; then
+              echo "module_layout comparison: MATCHES ProjectRYU stock modules"
+            else
+              echo "module_layout comparison: DOES NOT MATCH ProjectRYU stock modules (expected 0x0222dd63)"
+            fi
+          } >> "$GITHUB_WORKSPACE/build-output/abi-report.txt"
+
+          make O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld \
+            INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
+          release="$(cat out/include/config/kernel.release)"
+          depmod -b "$GITHUB_WORKSPACE/staging" "$release"
+          cp -a "$GITHUB_WORKSPACE/staging/lib/modules" "$GITHUB_WORKSPACE/build-output/"
+
+      - name: Upload ABI probe outputs (not flashable)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Roains-Nethunter-Sapphire-Zepharo-R10-ABI-probe
+          path: build-output/
+          if-no-files-found: error
+          retention-days: 14
