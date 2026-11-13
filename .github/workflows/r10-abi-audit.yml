@@ -53,14 +53,13 @@ jobs:
           grep -F "Cirrus clang version 24.0.0" "$GITHUB_WORKSPACE/toolchain/clang-version.txt"
           grep -F "LLD 24.0.0" "$GITHUB_WORKSPACE/toolchain/lld-version.txt"
 
-      - name: Add swap for the full-LTO kernel build
-        run: |
-          set -euo pipefail
-          sudo fallocate -l 20G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          free -h
+      - name: Setup swap for the full-LTO kernel build
+        uses: pierotofy/set-swap-space@fc79b3f67fa8a838184ce84a674ca12238d2c761
+        with:
+          swap-size-gb: 20
+
+      - name: Verify build memory
+        run: free -h
 
       - name: Fetch the exact kernel source revision reported by the running ProjectRYU kernel
         run: |
