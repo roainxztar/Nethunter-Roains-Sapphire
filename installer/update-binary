@@ -34,6 +34,7 @@ fi
 [ -n "$MODULE_DIR" ] || abort "Vendor module directory not found."
 [ -w "$MODULE_DIR" ] || abort "Vendor modules partition is not writable in recovery."
 [ -f "$MODULE_DIR/modules.dep" ] || abort "modules.dep is missing."
+[ -f "$MODULE_DIR/cfg80211.ko" ] || abort "ROM cfg80211.ko is missing; refusing to replace the vendor Wi-Fi stack."
 [ -f "$MODULE_DIR/modules.load" ] || abort "modules.load is missing."
 
 SLOT="$(getprop ro.boot.slot_suffix)"
@@ -58,6 +59,18 @@ for M in "$WORK"/modules/*.ko; do
   [ ! -e "$MODULE_DIR/$N" ] || cp -p "$MODULE_DIR/$N" "$BACKUP/$N"
 done
 
+rollback_modules() {
+  [ -f "$BACKUP/modules.dep" ] && cp -p "$BACKUP/modules.dep" "$MODULE_DIR/modules.dep"
+  [ -f "$BACKUP/modules.load" ] && cp -p "$BACKUP/modules.load" "$MODULE_DIR/modules.load"
+  for F in "$WORK"/modules/*.ko; do
+    [ -f "$F" ] || continue
+    N="$(basename "$F")"
+    if [ -f "$BACKUP/$N" ]; then cp -p "$BACKUP/$N" "$MODULE_DIR/$N"
+    else rm -f "$MODULE_DIR/$N"
+    fi
+  done
+}
+
 mkdir -p "$WORK/boot"
 dd if="$BOOT_PART" of="$WORK/boot/boot.img" bs=4M 2>/dev/null || abort "Cannot read current boot image."
 cd "$WORK/boot"
@@ -70,26 +83,30 @@ cp "$WORK/Image" kernel
 ui_print "Installing matching kernel modules..."
 for M in "$WORK"/modules/*.ko; do
   [ -f "$M" ] || continue
-  cp -f "$M" "$MODULE_DIR/$(basename "$M")" || abort "Failed to install $(basename "$M")."
+  N="$(basename "$M")"
+  if [ "$N" != "mac80211.ko" ] && [ -e "$MODULE_DIR/$N" ]; then
+    ui_print "Keeping existing vendor module $N"
+    continue
+  fi
+  cp -f "$M" "$MODULE_DIR/$N" || { rollback_modules; abort "Failed to install $N."; }
 done
 if [ -f "$WORK/modules.dep.additions" ]; then
   while IFS= read -r LINE; do
     [ -n "$LINE" ] || continue
-    grep -Fqx "$LINE" "$MODULE_DIR/modules.dep" || echo "$LINE" >> "$MODULE_DIR/modules.dep"
+    grep -Fqx "$LINE" "$MODULE_DIR/modules.dep" || echo "$LINE" >> "$MODULE_DIR/modules.dep" || { rollback_modules; abort "Failed to update modules.dep."; }
   done < "$WORK/modules.dep.additions"
 fi
 if [ -f "$WORK/modules.load.additions" ]; then
   while IFS= read -r LINE; do
     [ -n "$LINE" ] || continue
-    grep -Fqx "$LINE" "$MODULE_DIR/modules.load" || echo "$LINE" >> "$MODULE_DIR/modules.load"
+    grep -Fqx "$LINE" "$MODULE_DIR/modules.load" || echo "$LINE" >> "$MODULE_DIR/modules.load" || { rollback_modules; abort "Failed to update modules.load."; }
   done < "$WORK/modules.load.additions"
 fi
 
 ui_print "Flashing patched boot image to $BOOT_PART..."
 dd if=new-boot.img of="$BOOT_PART" bs=4M conv=fsync 2>/dev/null || {
-  cp -p "$BACKUP/modules.dep" "$MODULE_DIR/modules.dep"
-  cp -p "$BACKUP/modules.load" "$MODULE_DIR/modules.load"
-  abort "Boot flash failed; module metadata restored. Restore boot from $BACKUP."
+  rollback_modules
+  abort "Boot flash failed; module files and metadata restored. Restore boot from $BACKUP."
 }
 sync
 ui_print "Installation complete."
