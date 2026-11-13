@@ -51,7 +51,8 @@ for name, path in sorted(selected.items()):
     shutil.copy2(path, dst / name)
 
 def path_for(name):
-    return "/vendor/lib/modules/" + name
+    # Store module-relative paths; the installer prefixes the detected module directory.
+    return name
 
 with (dst.parent / "modules.dep.additions").open("w") as f:
     for name in sorted(selected):
