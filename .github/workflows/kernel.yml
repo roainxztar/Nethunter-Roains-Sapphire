@@ -180,25 +180,9 @@ jobs:
           IMAGE="$(find out -type f -path '*/arch/arm64/boot/Image' | head -n1)"
           cp "$IMAGE" package/Image
 
-          # Package only the new feature modules. Keep the ROM's cfg80211.ko
-          # and Qualcomm vendor WLAN modules untouched.
-          for MOD in mac80211.ko vcan.ko vxcan.ko slcan.ko nfs.ko nfsv3.ko nfsv4.ko nfsd.ko \
-                     dvb-core.ko dvb_usb_v2.ko dvb-usb-rtl28xxu.ko rtl2832.ko rtl2832_sdr.ko; do
-            SRC="$(find out -type f -name "$MOD" | head -n1 || true)"
-            [ -n "$SRC" ] && cp "$SRC" package/modules/
-          done
+          # Collect selected feature modules and their module dependencies.
+          python3 scripts/package_modules.py out package/modules
           test -s package/modules/mac80211.ko
-
-          : > package/modules.dep.additions
-          : > package/modules.load.additions
-          for MOD in package/modules/*.ko; do
-            NAME="$(basename "$MOD")"
-            DEPS="$(modinfo -F depends "$MOD" 2>/dev/null | tr ',' ' ')"
-            LINE="/vendor/lib/modules/$NAME:"
-            for DEP in $DEPS; do LINE="$LINE /vendor/lib/modules/$DEP.ko"; done
-            echo "$LINE" >> package/modules.dep.additions
-            echo "$NAME" >> package/modules.load.additions
-          done
 
           curl -fL --retry 3 -o /tmp/Magisk-v31.1.apk \
             https://github.com/topjohnwu/Magisk/releases/download/v31.1/Magisk-v31.1.apk
