@@ -9,6 +9,12 @@ test -x "$CFG" || chmod +x "$CFG"
 "$CFG" --file "$DEFCONFIG" --set-str LOCALVERSION "-Nethunter-Roains-Sapphire"
 "$CFG" --file "$DEFCONFIG" --disable LOCALVERSION_AUTO
 
+# This vendor kernel must retain exports used by prebuilt vendor_dlkm modules.
+# The inherited R9 whitelist points to a buildbot-only absolute path; disable
+# symbol trimming rather than risk dropping symbols required by external modules.
+"$CFG" --file "$DEFCONFIG" --disable TRIM_UNUSED_KSYMS
+"$CFG" --file "$DEFCONFIG" --set-str UNUSED_KSYMS_WHITELIST ""
+
 # Wireless framework: modules, not built-in. Keep the ROM's existing cfg80211.ko
 # as the provider for Qualcomm's vendor WLAN driver; build patched mac80211.ko.
 "$CFG" --file "$DEFCONFIG" --module CFG80211
