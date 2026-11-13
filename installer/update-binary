@@ -1,0 +1,98 @@
+#!/sbin/sh
+set -eu
+
+ui_print() { echo "ui_print $1"; echo "ui_print"; }
+abort() { ui_print "ERROR: $1"; exit 1; }
+
+API="$1"
+OUTFD="$2"
+ZIPFILE="$3"
+WORK="/tmp/roains-nethunter-$$"
+BACKUP="/sdcard/Roains-Nethunter-Backup"
+mkdir -p "$WORK" || abort "Cannot create temporary directory."
+mkdir -p "$BACKUP" || abort "Mount /sdcard and retry; backup storage is required."
+
+ui_print "Installing Roains-Nethunter-Sapphire"
+ui_print "Custom installer; no AnyKernel framework."
+
+unzip -oq "$ZIPFILE" "Image" "modules/*" "tools/magiskboot" "modules.dep.additions" "modules.load.additions" -d "$WORK" || abort "Cannot extract ZIP."
+[ -s "$WORK/Image" ] || abort "Kernel Image is missing."
+[ -x "$WORK/tools/magiskboot" ] || chmod 755 "$WORK/tools/magiskboot"
+
+DEVICE="$(getprop ro.product.device) $(getprop ro.build.product) $(getprop ro.product.vendor.device)"
+echo "$DEVICE" | grep -qiE 'sapphire|sapphiren' || abort "Unsupported device: $DEVICE"
+
+mount /vendor_dlkm 2>/dev/null || true
+mount /vendor 2>/dev/null || true
+mount -o rw,remount /vendor_dlkm 2>/dev/null || true
+mount -o rw,remount /vendor 2>/dev/null || true
+
+MODULE_DIR=""
+if [ -d /vendor/lib/modules ]; then MODULE_DIR=/vendor/lib/modules
+elif [ -d /vendor_dlkm/lib/modules ]; then MODULE_DIR=/vendor_dlkm/lib/modules
+fi
+[ -n "$MODULE_DIR" ] || abort "Vendor module directory not found."
+[ -w "$MODULE_DIR" ] || abort "Vendor modules partition is not writable in recovery."
+[ -f "$MODULE_DIR/modules.dep" ] || abort "modules.dep is missing."
+[ -f "$MODULE_DIR/modules.load" ] || abort "modules.load is missing."
+
+SLOT="$(getprop ro.boot.slot_suffix)"
+if [ -z "$SLOT" ] && command -v bootctl >/dev/null 2>&1; then
+  SLOTNUM="$(bootctl get-current-slot 2>/dev/null || echo 0)"
+  [ "$SLOTNUM" = "1" ] && SLOT="_b" || SLOT="_a"
+fi
+BOOT_PART=""
+for BASE in /dev/block/by-name /dev/block/bootdevice/by-name; do
+  if [ -n "$SLOT" ] && [ -e "$BASE/boot$SLOT" ]; then BOOT_PART="$BASE/boot$SLOT"; break; fi
+  if [ -z "$SLOT" ] && [ -e "$BASE/boot" ]; then BOOT_PART="$BASE/boot"; break; fi
+done
+[ -n "$BOOT_PART" ] || abort "Active boot partition not found."
+
+ui_print "Backing up active boot and module metadata..."
+dd if="$BOOT_PART" of="$BACKUP/boot$SLOT.img" bs=4M 2>/dev/null || abort "Boot backup failed."
+cp -p "$MODULE_DIR/modules.dep" "$BACKUP/modules.dep"
+cp -p "$MODULE_DIR/modules.load" "$BACKUP/modules.load"
+for M in "$WORK"/modules/*.ko; do
+  [ -f "$M" ] || continue
+  N="$(basename "$M")"
+  [ ! -e "$MODULE_DIR/$N" ] || cp -p "$MODULE_DIR/$N" "$BACKUP/$N"
+done
+
+mkdir -p "$WORK/boot"
+dd if="$BOOT_PART" of="$WORK/boot/boot.img" bs=4M 2>/dev/null || abort "Cannot read current boot image."
+cd "$WORK/boot"
+"$WORK/tools/magiskboot" unpack boot.img >/dev/null 2>&1 || abort "Current boot image cannot be unpacked."
+[ -f kernel ] || abort "Boot image has no kernel payload."
+cp "$WORK/Image" kernel
+"$WORK/tools/magiskboot" repack boot.img new-boot.img >/dev/null 2>&1 || abort "Boot image repack failed."
+[ -s new-boot.img ] || abort "Repacked boot image is empty."
+
+ui_print "Installing matching kernel modules..."
+for M in "$WORK"/modules/*.ko; do
+  [ -f "$M" ] || continue
+  cp -f "$M" "$MODULE_DIR/$(basename "$M")" || abort "Failed to install $(basename "$M")."
+done
+if [ -f "$WORK/modules.dep.additions" ]; then
+  while IFS= read -r LINE; do
+    [ -n "$LINE" ] || continue
+    grep -Fqx "$LINE" "$MODULE_DIR/modules.dep" || echo "$LINE" >> "$MODULE_DIR/modules.dep"
+  done < "$WORK/modules.dep.additions"
+fi
+if [ -f "$WORK/modules.load.additions" ]; then
+  while IFS= read -r LINE; do
+    [ -n "$LINE" ] || continue
+    grep -Fqx "$LINE" "$MODULE_DIR/modules.load" || echo "$LINE" >> "$MODULE_DIR/modules.load"
+  done < "$WORK/modules.load.additions"
+fi
+
+ui_print "Flashing patched boot image to $BOOT_PART..."
+dd if=new-boot.img of="$BOOT_PART" bs=4M conv=fsync 2>/dev/null || {
+  cp -p "$BACKUP/modules.dep" "$MODULE_DIR/modules.dep"
+  cp -p "$BACKUP/modules.load" "$MODULE_DIR/modules.load"
+  abort "Boot flash failed; module metadata restored. Restore boot from $BACKUP."
+}
+sync
+ui_print "Installation complete."
+ui_print "Backup: $BACKUP"
+ui_print "Reboot when ready."
+exit 0
