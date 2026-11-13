@@ -79,6 +79,7 @@ jobs:
 
           sed -i 's/^DEFCONFIG=.*/DEFCONFIG=roains_nethunter_sapphire_defconfig/' "$KERNEL/build.config.gki"
           sed -i '/POST_DEFCONFIG_CMDS=/d' "$KERNEL/build.config.gki"
+          echo 'POST_DEFCONFIG_CMDS=""' >> "$KERNEL/build.config.gki"
 
           CFG="$KERNEL/build.config.gki.aarch64"
           sed -i '/^KMI_SYMBOL_LIST_STRICT_MODE=/d; /^TRIM_NONLISTED_KMI=/d; /^KMI_ENFORCED=/d; /^MODULES_ORDER=/d; /^MODULES_LIST=/d' "$CFG"
@@ -89,8 +90,11 @@ jobs:
           MAKE_GOALS="${MAKE_GOALS} Image modules"
           EOF
 
-          grep -q '^BRANCH=android13-5.15$' "$KERNEL/build.config.constants"
-          grep -q '^CLANG_VERSION=r450784e$' "$KERNEL/build.config.constants"
+          sed -i '/^BRANCH=/d; /^CLANG_VERSION=/d' "$KERNEL/build.config.constants"
+          cat >> "$KERNEL/build.config.constants" <<'EOF'
+          BRANCH=android13-5.15
+          CLANG_VERSION=r450784e
+          EOF
 
       - name: Build kernel and modules with R9 toolchain settings
         run: |
@@ -122,6 +126,13 @@ jobs:
           require "CONFIG_CGROUP_PIDS=y"
           require "CONFIG_CGROUP_DEVICE=y"
           require "CONFIG_USB_CONFIGFS_RNDIS=y"
+          require "CONFIG_CAN_VCAN=m"
+          require "CONFIG_CAN_VXCAN=m"
+          require "CONFIG_CAN_SLCAN=m"
+          require "CONFIG_NFS_FS=m"
+          require "CONFIG_NFSD=m"
+          require "CONFIG_MEDIA_SDR_SUPPORT=y"
+          require "CONFIG_DVB_CORE=m"
 
           python3 scripts/verify_abi.py \
             --symvers "$SYMVERS" \
