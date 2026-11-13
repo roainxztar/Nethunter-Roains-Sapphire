@@ -41,8 +41,20 @@ jobs:
           test -x "$CLANG_BIN/clang"
           echo "$CLANG_BIN" >> "$GITHUB_PATH"
           echo "CLANG_BIN=$CLANG_BIN" >> "$GITHUB_ENV"
-          clang --version
-          ld.lld --version
+          export PATH="$CLANG_BIN:$PATH"
+          clang --version | tee "$GITHUB_WORKSPACE/toolchain/clang-version.txt"
+          ld.lld --version | tee "$GITHUB_WORKSPACE/toolchain/lld-version.txt"
+          grep -F "Cirrus clang version 24.0.0" "$GITHUB_WORKSPACE/toolchain/clang-version.txt"
+          grep -F "LLD 24.0.0" "$GITHUB_WORKSPACE/toolchain/lld-version.txt"
+
+      - name: Add swap for the full-LTO kernel build
+        run: |
+          set -euo pipefail
+          sudo fallocate -l 20G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
 
       - name: Fetch the exact kernel source revision reported by the running ProjectRYU kernel
         run: |
