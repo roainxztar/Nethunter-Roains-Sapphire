@@ -39,15 +39,14 @@ jobs:
       - name: Prepare swap
         run: |
           set -euo pipefail
-          # GitHub-hosted Ubuntu runners may already have /swapfile enabled.
-          # Never resize or recreate an active swapfile.
-          if [ -n "$(swapon --noheadings --show=NAME)" ]; then
-            echo "Existing runner swap detected; reusing it."
-          else
-            SWAPFILE=/swapfile-nethunter
-            sudo fallocate -l 8G "$SWAPFILE"
-            sudo chmod 600 "$SWAPFILE"
-            sudo mkswap "$SWAPFILE"
+          # Keep the runner's active swapfile intact and add dedicated build swap.
+          SWAPFILE=/swapfile-nethunter
+          if ! swapon --noheadings --show=NAME | grep -Fxq "$SWAPFILE"; then
+            if [ ! -e "$SWAPFILE" ]; then
+              sudo fallocate -l 8G "$SWAPFILE"
+              sudo chmod 600 "$SWAPFILE"
+              sudo mkswap "$SWAPFILE"
+            fi
             sudo swapon "$SWAPFILE"
           fi
           swapon --show
