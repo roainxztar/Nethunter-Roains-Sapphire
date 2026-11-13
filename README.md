@@ -6,7 +6,8 @@ A NetHunter-oriented custom kernel project for the Xiaomi Redmi Note 13 4G famil
 
 - **Project:** Roains-Nethunter-Sapphire
 - **Kernel display name:** `Nethunter-Roains-Sapphire`
-- **Device codenames:** `sapphire`, `sapphiren`
+- **Primary device codename:** `sapphire`
+- **Installer device check:** accepts `sapphire` / `sapphiren` strings; Sapphiren hardware is not yet validated and should not be considered supported.
 - **SoC / architecture:** Qualcomm SM6225 (Snapdragon 685), arm64
 - **Active development branch:** `build/r9-nethunter`
 - **Kernel release line:** Linux `5.15.211` (Zepharo R9 source baseline)
@@ -70,7 +71,7 @@ When all build and verification stages pass, GitHub Actions uploads:
 - Final kernel `.config`, `Module.symvers`, ABI report and build diagnostics.
 - Flashable package: `Roains-Nethunter-Sapphire-5.15.211.zip`.
 
-The module packager collects the selected feature modules and available dependencies. It intentionally excludes `cfg80211.ko), preserving the ROM's vendor copy.
+The module packager collects the selected feature modules and available dependencies. It intentionally excludes `cfg80211.ko`, preserving the ROM's vendor copy.
 
 ## Installer design and limitations
 
@@ -91,7 +92,7 @@ The custom installer is intended to:
 
 Android 13–17 may be within the project's intended ROM range, but this is not a blanket compatibility guarantee. Before using a ROM, verify:
 
-- Sapphire/Sapphiren device identity.
+- Sapphire device identity (Sapphiren remains untested).
 - Compatible 5.15 GKI/KMI and vendor symbol CRCs.
 - Required vendor modules and their dependencies.
 - Boot image header, partition layout and active slot handling.
