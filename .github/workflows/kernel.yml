@@ -1,205 +1,195 @@
-name: Roains NetHunter Sapphire Kernel
+name: Roains-Nethunter-Sapphire
 
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - build/r9-nethunter
     paths:
-      - '.github/workflows/**'
-      - 'README.md'
+      - ".github/workflows/kernel.yml"
+      - "config/**"
+      - "abi/**"
+      - "patches/**"
+      - "scripts/**"
+      - "installer/**"
+      - "README.md"
 
 permissions:
   contents: read
 
-concurrency:
-  group: sapphire-kernel-build-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   build:
-    name: Validate patches, configure and compile
     runs-on: ubuntu-22.04
     timeout-minutes: 360
     steps:
-      - name: Checkout build configuration
+      - name: Checkout project
         uses: actions/checkout@v4
 
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache clang-14 flex git libelf-dev libssl-dev lld-14 llvm-14 pahole python3 python-is-python3 rsync
-          test -x /usr/bin/ld.lld-14
-          sudo ln -sf /usr/bin/ld.lld-14 /usr/local/bin/ld.lld
-          sudo ln -sf /usr/bin/clang-14 /usr/local/bin/clang
-          sudo ln -sf /usr/bin/clang++-14 /usr/local/bin/clang++
-          for tool in ar ranlib nm objcopy objdump strip readelf; do
-            test -x "/usr/bin/llvm-${tool}-14"
-            sudo ln -sf "/usr/bin/llvm-${tool}-14" "/usr/local/bin/llvm-${tool}"
-          done
-          llvm-ar --version
-          ld.lld --version
-          clang --version
+          sudo apt-get install -y repo rsync aria2 bc bison flex build-essential \
+            libelf-dev libssl-dev python3 zip unzip kmod dwarves cpio \
+            device-tree-compiler libncurses-dev lz4 binutils
 
-      - name: Fetch ChicKernel source and integrate required security source
+      - name: Prepare swap
         run: |
-          git clone --depth=1 --branch android13-5.15-lts https://github.com/ChicKernel/device_xiaomi_gemstones-kernel.git kernel
-          test "$(make -s -C kernel kernelversion)" = "5.15.189"
-          rm -rf kernel/drivers/kernelsu
-          mkdir -p kernel/drivers/kernelsu
-          printf "%s\\n" "# KernelSU intentionally omitted in this no-root build." > kernel/drivers/kernelsu/Kconfig
-          git -C kernel submodule update --init --depth 1 Baseband-guard
-          test -f kernel/Baseband-guard/Kconfig
-          ln -s ../Baseband-guard kernel/security/baseband-guard
-          test -f kernel/security/baseband-guard/Kconfig
-          test -f kernel/security/baseband-guard/Makefile
-          echo "Baseband-guard linked; no root manager is integrated."
+          sudo fallocate -l 16G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
 
-      - name: Fetch and strictly validate NetHunter 5.15 patch
+      - name: Restore exact R9 kernel configuration
         run: |
-          git clone --depth=1 https://github.com/roainxztar/kali-nethunter-kernel-patches.git nethunter-patches
-          patch_file="nethunter-patches/adapted/5.15/add-wifi-injection-5.15.patch"
-          test -s "$patch_file"
-          git -C kernel apply --check --whitespace=nowarn "$GITHUB_WORKSPACE/$patch_file"
-          git -C kernel apply --whitespace=fix "$GITHUB_WORKSPACE/$patch_file"
-          git -C kernel diff --check
-          git -C kernel diff --stat | tee patch-integration.txt
-          grep -q 'ieee80211_tx_h_sequence' <(git -C kernel diff -- net/mac80211/tx.c)
-          echo "NetHunter 5.15 patch applied and verified." | tee -a patch-integration.txt
+          mkdir -p config
+          base64 -d config/r9-kernel.config.gz.b64 | gzip -dc > /tmp/r9-kernel.config
+          test -s /tmp/r9-kernel.config
+          grep -q '^CONFIG_MODULES=y$' /tmp/r9-kernel.config
+          grep -q '^CONFIG_MODVERSIONS=y$' /tmp/r9-kernel.config
+          grep -q '^CONFIG_LTO_CLANG_FULL=y$' /tmp/r9-kernel.config
+          grep -q '^CONFIG_CFI_CLANG=y$' /tmp/r9-kernel.config
+          grep -q '^CONFIG_SHADOW_CALL_STACK=y$' /tmp/r9-kernel.config
 
-      - name: Configure NetHunter, Docker, CAN, SDR and peripheral support
-        working-directory: kernel
+      - name: Fetch exact Zepharo R9 source
+        run: |
+          mkdir -p common_gki/common
+          git -C common_gki/common init
+          git -C common_gki/common remote add origin https://github.com/topnotchfreaks/kernel_msm-5.15.git
+          git -C common_gki/common fetch --depth=1 origin c3405fe3912bf981aa5129a74410104140a25a93
+          git -C common_gki/common checkout --detach FETCH_HEAD
+          test "$(git -C common_gki/common rev-parse HEAD)" = "c3405fe3912bf981aa5129a74410104140a25a93"
+          test "$(make -s -C common_gki/common kernelversion)" = "5.15.211"
+
+      - name: Fetch Android Common build system and pinned Clang
+        run: |
+          repo init -u https://android.googlesource.com/kernel/manifest -b common-android13-5.15-lts --depth=1
+          repo sync --optimized-fetch --prune --no-clone-bundle --no-tags -j"$(nproc)"
+          rm -rf .repo common
+
+      - name: Configure R9 baseline and NetHunter features
+        run: |
+          KERNEL="$GITHUB_WORKSPACE/common_gki/common"
+          DEFCONFIG="$KERNEL/arch/arm64/configs/roains_nethunter_sapphire_defconfig"
+          cp /tmp/r9-kernel.config "$DEFCONFIG"
+          bash scripts/configure_features.sh "$DEFCONFIG" "$KERNEL"
+
+          git -C "$KERNEL" apply --check "$GITHUB_WORKSPACE/patches/nethunter-mac80211-5.15.patch"
+          git -C "$KERNEL" apply "$GITHUB_WORKSPACE/patches/nethunter-mac80211-5.15.patch"
+
+          sed -i 's/^DEFCONFIG=.*/DEFCONFIG=roains_nethunter_sapphire_defconfig/' "$KERNEL/build.config.gki"
+          sed -i '/POST_DEFCONFIG_CMDS=/d' "$KERNEL/build.config.gki"
+
+          CFG="$KERNEL/build.config.gki.aarch64"
+          sed -i '/^KMI_SYMBOL_LIST_STRICT_MODE=/d; /^TRIM_NONLISTED_KMI=/d; /^KMI_ENFORCED=/d; /^MODULES_ORDER=/d; /^MODULES_LIST=/d' "$CFG"
+          cat >> "$CFG" <<'EOF'
+          KMI_SYMBOL_LIST_STRICT_MODE=0
+          TRIM_NONLISTED_KMI=0
+          KMI_ENFORCED=0
+          MAKE_GOALS="${MAKE_GOALS} Image modules"
+          EOF
+
+          grep -q '^BRANCH=android13-5.15$' "$KERNEL/build.config.constants"
+          grep -q '^CLANG_VERSION=r450784e$' "$KERNEL/build.config.constants"
+
+      - name: Build kernel and modules with R9 toolchain settings
+        run: |
+          ROOT_DIR="$GITHUB_WORKSPACE" \
+          KERNEL_DIR="$GITHUB_WORKSPACE/common_gki/common" \
+          OUT_DIR="$GITHUB_WORKSPACE/out" \
+          BUILD_CONFIG="$GITHUB_WORKSPACE/common_gki/common/build.config.gki.aarch64" \
+          LTO=full build/build.sh
+
+      - name: Verify final config and module ABI
         run: |
           set -euo pipefail
-          make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 chickernel_defconfig
-          cfg="scripts/config --file out/.config"
-          $cfg --set-str LOCALVERSION "-Nethunter-Roains-Sapphire"
-          $cfg --disable LOCALVERSION_AUTO
+          CONFIG="$(find out -name .config -type f | head -n1)"
+          SYMVERS="$(find out -name Module.symvers -type f | head -n1)"
+          IMAGE="$(find out -type f -path '*/arch/arm64/boot/Image' | head -n1)"
+          MAC80211="$(find out -type f -name mac80211.ko | head -n1)"
+          test -s "$CONFIG" && test -s "$SYMVERS" && test -s "$IMAGE" && test -s "$MAC80211"
 
-          # Full LTO can create a large peak-memory spike during vmlinux linking.
-          # Use ThinLTO while preserving CFI and Shadow Call Stack.
-          $cfg --disable LTO_CLANG_FULL
-          $cfg --enable LTO_CLANG_THIN
+          require() { grep -qx "$1" "$CONFIG" || { echo "Missing final config: $1"; exit 1; }; }
+          require "CONFIG_MODULES=y"
+          require "CONFIG_MODVERSIONS=y"
+          require 'CONFIG_LOCALVERSION="-Nethunter-Roains-Sapphire"'
+          require "# CONFIG_LOCALVERSION_AUTO is not set"
+          require "CONFIG_CFG80211=m"
+          require "CONFIG_MAC80211=m"
+          require "CONFIG_PID_NS=y"
+          require "CONFIG_USER_NS=y"
+          require "CONFIG_IPC_NS=y"
+          require "CONFIG_CGROUP_PIDS=y"
+          require "CONFIG_CGROUP_DEVICE=y"
+          require "CONFIG_USB_CONFIGFS_RNDIS=y"
 
-          # Enable loadable-module support: MT76 USB adapters are tristate
-          # drivers and cannot resolve to m without CONFIG_MODULES=y.
-          $cfg --enable MODULES
+          python3 scripts/verify_abi.py \
+            --symvers "$SYMVERS" \
+            --module "$MAC80211" \
+            --r9-baseline abi/r9-vendor-abi.tsv.gz.b64 \
+            --qca-baseline abi/qca-cfg80211-abi.tsv.gz.b64 \
+            --report out/abi-report.txt
 
-          # Namespaces and Docker/chroot foundations.
-          for opt in NAMESPACES PID_NS NET_NS SYSVIPC IPC_NS UTS_NS USER_NS CGROUPS MEMCG CGROUP_FREEZER CPUSETS CGROUP_PIDS CGROUP_CPUACCT CGROUP_SCHED CGROUP_DEVICE CGROUP_BPF BLK_CGROUP SECCOMP SECCOMP_FILTER BPF_SYSCALL BPF_JIT OVERLAY_FS FUSE_FS BLK_DEV_LOOP BLK_DEV_DM DM_CRYPT DM_VERITY VETH TUN BRIDGE BRIDGE_NETFILTER VLAN_8021Q NETFILTER NF_CONNTRACK NF_NAT NETFILTER_XTABLES NF_TABLES IP_NF_IPTABLES IP_NF_NAT IP6_NF_IPTABLES IP6_NF_NAT; do
-            $cfg --enable "$opt" || true
-          done
+          mkdir -p diagnostics
+          cp "$CONFIG" diagnostics/kernel.config
+          cp "$SYMVERS" diagnostics/Module.symvers
+          cp "$IMAGE" diagnostics/Image
+          cp "$MAC80211" diagnostics/mac80211.ko
+          cp out/abi-report.txt diagnostics/
 
-          # NetHunter wireless, HID gadget, Bluetooth transports and NFS.
-          for opt in WLAN WLAN_VENDOR_MEDIATEK CFG80211 MAC80211 WIRELESS RFKILL USB USB_GADGET USB_CONFIGFS USB_CONFIGFS_F_HID USB_CONFIGFS_F_FS USB_CONFIGFS_MASS_STORAGE USB_CONFIGFS_ACM USB_CONFIGFS_RNDIS USB_CONFIGFS_ECM USB_CONFIGFS_NCM BT BT_HCIBTUSB BT_HCIBTUSB_BCM BT_HCIBTUSB_RTL BT_HCIBTUSB_MTK BT_HCIUART BT_HCIUART_H4 BT_HCIUART_QCA BT_RFCOMM BT_HIDP NFS_FS NFSD; do
-            $cfg --enable "$opt" || true
-          done
-
-          # Diagnose MT76 Kconfig discovery before requesting driver modules.
-          echo "=== MT76 source-tree diagnostics ==="
-          for path in drivers/net/wireless/Kconfig drivers/net/wireless/mediatek/Kconfig drivers/net/wireless/mediatek/mt76/Kconfig drivers/net/wireless/mediatek/mt76/mt76x0/Kconfig drivers/net/wireless/mediatek/mt76/mt76x2/Kconfig; do
-            test -f "$path" || { echo "MISSING: $path"; exit 1; }
-            echo "FOUND: $path"
-          done
-          grep -n 'mediatek/Kconfig' drivers/net/wireless/Kconfig
-          grep -n 'mt76/Kconfig' drivers/net/wireless/mediatek/Kconfig
-          for path in drivers/net/wireless/mediatek/mt76/mt76x0/Kconfig drivers/net/wireless/mediatek/mt76/mt76x2/Kconfig; do
-            grep -nE '^config (MT76x0U|MT76x2U)' "$path"
-          done
-          # These Kconfig symbols contain lowercase x and uppercase U. The
-          # scripts/config default uppercases symbols, so preserve exact case.
-          $cfg --keep-case --module MT76x0U
-          $cfg --keep-case --module MT76x2U
-          echo "=== MT76 requested values before olddefconfig ==="
-          grep -E '^(CONFIG_MT76x0U=|CONFIG_MT76x2U=|# CONFIG_MT76)' out/.config || true
-          echo "=== MT76 parent values before olddefconfig ==="
-          for opt in MODULES WLAN WLAN_VENDOR_MEDIATEK CFG80211 MAC80211 USB USB_SUPPORT; do
-            grep -E "^(CONFIG_${opt}=|# CONFIG_${opt} is not set)" out/.config || true
-          done
-          # CAN stack; HLCAN is not present in this source tree.
-          for opt in CAN CAN_RAW CAN_BCM CAN_GW CAN_VCAN CAN_VXCAN CAN_SLCAN CAN_DEV CAN_CALC_BITTIMING; do
-            $cfg --enable "$opt" || true
-          done
-
-          # RTL2832 SDR software stack.
-          for opt in MEDIA_SUPPORT MEDIA_DIGITAL_TV_SUPPORT MEDIA_SDR_SUPPORT VIDEO_DEV VIDEO_V4L2 DVB_CORE DVB_USB_V2 DVB_USB_RTL28XXU DVB_RTL2832 DVB_RTL2832_SDR I2C I2C_MUX VIDEOBUF2_VMALLOC; do
-            $cfg --enable "$opt" || true
-          done
-
-          make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 olddefconfig
-          cp out/.config ../final-kernel.config
-          {
-            echo "=== Requested feature configuration after olddefconfig ==="
-            for opt in MODULES LTO_CLANG_THIN CFI_CLANG SHADOW_CALL_STACK PID_NS NET_NS IPC_NS UTS_NS USER_NS CGROUPS CGROUP_DEVICE MEMCG CGROUP_FREEZER CPUSETS CGROUP_PIDS CGROUP_CPUACCT CGROUP_SCHED SECCOMP SECCOMP_FILTER BPF_SYSCALL OVERLAY_FS FUSE_FS BLK_DEV_LOOP BLK_DEV_DM VETH TUN BRIDGE BRIDGE_NETFILTER NF_CONNTRACK NF_NAT IP_NF_NAT IP6_NF_NAT WLAN WLAN_VENDOR_MEDIATEK CFG80211 MAC80211 USB USB_SUPPORT MT76_CORE MT76_USB MT76x02_LIB MT76x02_USB MT76x0_COMMON MT76x2_COMMON USB_CONFIGFS_F_HID BT_HCIBTUSB BT_HCIBTUSB_RTL BT_HCIUART_QCA NFS_FS NFSD MT76x0U MT76x2U CAN_RAW CAN_VCAN CAN_SLCAN MEDIA_SDR_SUPPORT DVB_RTL2832_SDR DVB_USB_RTL28XXU; do
-              grep -E "^(CONFIG_${opt}=(y|m)|# CONFIG_${opt} is not set)" out/.config || true
-            done
-          } | tee ../config-verification.txt
-
-          grep -q '^CONFIG_MODULES=y$' out/.config
-          grep -q '^CONFIG_LTO_CLANG_THIN=y$' out/.config
-          ! grep -q '^CONFIG_LTO_CLANG_FULL=y$' out/.config
-          grep -q '^CONFIG_CFI_CLANG=y$' out/.config
-          grep -q '^CONFIG_SHADOW_CALL_STACK=y$' out/.config
-          for opt in PID_NS NET_NS IPC_NS UTS_NS USER_NS CGROUPS CGROUP_DEVICE MEMCG CGROUP_FREEZER CPUSETS CGROUP_PIDS SECCOMP SECCOMP_FILTER WLAN WLAN_VENDOR_MEDIATEK CFG80211 MAC80211 USB USB_SUPPORT USB_CONFIGFS_F_HID; do
-            grep -q "^CONFIG_${opt}=y$" out/.config
-          done
-          for opt in NFS_FS NFSD BT_HCIUART_QCA CAN_RAW CAN_VCAN CAN_SLCAN MEDIA_SDR_SUPPORT DVB_RTL2832_SDR DVB_USB_RTL28XXU; do
-            grep -Eq "^CONFIG_${opt}=(y|m)$" out/.config
-          done
-          for opt in MT76x0U MT76x2U; do
-            grep -q "^CONFIG_${opt}=m$" out/.config
-          done
-          ! grep -q '^CONFIG_KSU=y$' out/.config
-          ! grep -q '^CONFIG_KERNELSU=y$' out/.config
-
-      - name: Compile kernel, modules and DTBs
-        working-directory: kernel
+      - name: Stage compact flashable ZIP
         run: |
-          ! grep -q '^CONFIG_KSU=y$' out/.config
-          JOBS=2
-          echo "Compiling with $JOBS parallel jobs (memory-conscious ThinLTO build)"
-          free -h
-          (
-            while sleep 30; do
-              echo "=== Build memory snapshot: $(date -u +'%Y-%m-%dT%H:%M:%SZ') ==="
-              free -h
-              grep -E '^(MemAvailable|SwapFree):' /proc/meminfo || true
-              if [ -r /proc/pressure/memory ]; then cat /proc/pressure/memory; fi
-            done
-          ) &
-          memmon_pid=$!
-          trap 'kill "$memmon_pid" 2>/dev/null || true; wait "$memmon_pid" 2>/dev/null || true' EXIT
-          make -j"$JOBS" O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 KCFLAGS="-mllvm -regalloc-enable-advisor=default -Wno-error=unused-but-set-variable -Wno-error=unused-const-variable" KBUILD_LDFLAGS="-mllvm -regalloc-enable-advisor=default" Image.gz modules dtbs
-          mkdir -p "$GITHUB_WORKSPACE/build-output"
-          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/"
-          cp out/.config "$GITHUB_WORKSPACE/build-output/kernel.config"
-          test -s out/Module.symvers
-          cp out/Module.symvers "$GITHUB_WORKSPACE/build-output/Module.symvers"
-          make O=out ARCH=arm64 LLVM=-14 LD=ld.lld-14 INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
-          KERNEL_RELEASE="$(cat out/include/config/kernel.release)"
-          MODULES_DIR="$GITHUB_WORKSPACE/staging/lib/modules/$KERNEL_RELEASE"
-          depmod -b "$GITHUB_WORKSPACE/staging" "$KERNEL_RELEASE"
+          set -euo pipefail
+          mkdir -p package/META-INF/com/google/android package/modules package/tools
+          IMAGE="$(find out -type f -path '*/arch/arm64/boot/Image' | head -n1)"
+          cp "$IMAGE" package/Image
 
-          for link_name in build source; do
-            link_path="$MODULES_DIR/$link_name"
-            if [ -L "$link_path" ]; then
-              rm -- "$link_path"
-            elif [ -e "$link_path" ]; then
-              echo "ERROR: $link_path is not a symlink" >&2
-              exit 1
-            fi
+          # Package only the new feature modules. Keep the ROM's cfg80211.ko
+          # and Qualcomm vendor WLAN modules untouched.
+          for MOD in mac80211.ko vcan.ko vxcan.ko slcan.ko nfs.ko nfsv3.ko nfsv4.ko nfsd.ko \
+                     dvb-core.ko dvb-usb-v2.ko dvb-usb-rtl28xxu.ko rtl2832.ko rtl2832_sdr.ko; do
+            SRC="$(find out -type f -name "$MOD" | head -n1 || true)"
+            [ -n "$SRC" ] && cp "$SRC" package/modules/
+          done
+          test -s package/modules/mac80211.ko
+
+          : > package/modules.dep.additions
+          : > package/modules.load.additions
+          for MOD in package/modules/*.ko; do
+            NAME="$(basename "$MOD")"
+            DEPS="$(modinfo -F depends "$MOD" 2>/dev/null | tr ',' ' ')"
+            LINE="/vendor/lib/modules/$NAME:"
+            for DEP in $DEPS; do LINE="$LINE /vendor/lib/modules/$DEP.ko"; done
+            echo "$LINE" >> package/modules.dep.additions
+            echo "$NAME" >> package/modules.load.additions
           done
 
-          cp -a "$GITHUB_WORKSPACE/staging/lib/modules" "$GITHUB_WORKSPACE/build-output/"
-          find out/arch/arm64/boot/dts -type f \( -name '*.dtb' -o -name '*.dtbo' \) -exec cp --parents {} "$GITHUB_WORKSPACE/build-output/" \;
+          curl -fL --retry 3 -o /tmp/Magisk-v31.1.apk \
+            https://github.com/topjohnwu/Magisk/releases/download/v31.1/Magisk-v31.1.apk
+          ASSET="$(unzip -Z1 /tmp/Magisk-v31.1.apk | grep -E 'lib/arm64-v8a/libmagiskboot.so$' | head -n1)"
+          test -n "$ASSET"
+          unzip -p /tmp/Magisk-v31.1.apk "$ASSET" > package/tools/magiskboot
+          chmod 755 package/tools/magiskboot
 
-      - name: Upload compact build diagnostics only (no kernel payload ZIP)
+          cp installer/update-binary package/META-INF/com/google/android/update-binary
+          cp installer/updater-script package/META-INF/com/google/android/updater-script
+          chmod 755 package/META-INF/com/google/android/update-binary
+          (cd package && zip -9 -X -r "$GITHUB_WORKSPACE/Roains-Nethunter-Sapphire-5.15.211.zip" .)
+          ls -lh "$GITHUB_WORKSPACE/Roains-Nethunter-Sapphire-5.15.211.zip"
+
+      - name: Upload flashable ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: Roains-Nethunter-Sapphire-build-report
-          path: |
-            final-kernel.config
-            config-verification.txt
-            patch-integration.txt
+          name: Roains-Nethunter-Sapphire-5.15.211
+          path: Roains-Nethunter-Sapphire-5.15.211.zip
           if-no-files-found: error
-          compression-level: 9
-          retention-days: 7
+          retention-days: 30
+
+      - name: Upload ABI and build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Roains-Nethunter-Sapphire-diagnostics
+          path: diagnostics/
+          if-no-files-found: ignore
+          retention-days: 30
