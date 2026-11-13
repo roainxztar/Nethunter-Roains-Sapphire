@@ -133,7 +133,258 @@ jobs:
           ! grep -q '^CONFIG_KSU=y$' out/.config
           ! grep -q '^CONFIG_KERNELSU=y$' out/.config
           grep -q '^CONFIG_LOCALVERSION="-Nethunter-Roains-Sapphire"$' out/.config
-          ! grep -q '^CONFIG_LOCALVERSION_AUTO=y          {
+          ! grep -q '^CONFIG_LOCALVERSION_AUTO=y
+            echo "Source commit: $(git rev-parse HEAD)"
+            echo "Kernel version: $(make -s kernelversion)"
+            echo "Kernel release: $(cat out/include/config/kernel.release)"
+            echo "Compiler: $(clang --version | head -n 1)"
+            echo "module_layout CRC: pending build"
+            echo "KSU config: absent"
+            echo "Unused symbol trimming: disabled; MODVERSIONS remains enabled"
+            echo "Installer: none; this is an ABI probe only"
+          } > "$GITHUB_WORKSPACE/build-output/abi-report.txt"
+
+      - name: Apply the R10 builder's compiler compatibility flags
+        working-directory: kernel
+        run: |
+          set -euo pipefail
+          printf '%s\n' \
+            'KBUILD_CFLAGS += -Wno-default-const-init-unsafe' \
+            'KBUILD_CFLAGS += -Wno-uninitialized-const-pointer' \
+            'KBUILD_CFLAGS += -Wno-implicit-function-declaration' \
+            'KBUILD_CFLAGS += -Wno-sometimes-uninitialized' >> Makefile
+
+      - name: Compile kernel and modules
+        working-directory: kernel
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/cirrus-clang/bin:$PATH"
+          make -j4 O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld Image.gz modules
+
+          test -s out/Module.symvers
+          test -s out/arch/arm64/boot/Image.gz
+          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/"
+          cp out/Module.symvers "$GITHUB_WORKSPACE/build-output/Module.symvers"
+          crc="$(awk '$2 == "module_layout" {print $1}' out/Module.symvers)"
+          {
+            echo "module_layout CRC: $crc"
+            if [ "$crc" = "0x0222dd63" ]; then
+              echo "module_layout comparison: MATCHES ProjectRYU stock modules"
+            else
+              echo "module_layout comparison: DOES NOT MATCH ProjectRYU stock modules (expected 0x0222dd63)"
+            fi
+          } >> "$GITHUB_WORKSPACE/build-output/abi-report.txt"
+
+          make O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld \
+            INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
+          release="$(cat out/include/config/kernel.release)"
+          depmod -b "$GITHUB_WORKSPACE/staging" "$release"
+          cp -a "$GITHUB_WORKSPACE/staging/lib/modules" "$GITHUB_WORKSPACE/build-output/"
+
+      - name: Upload ABI probe outputs (not flashable)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Roains-Nethunter-Sapphire-Zepharo-R10-ABI-probe
+          path: build-output/
+          if-no-files-found: error
+          retention-days: 14 out/.config
+          ! grep -q '^CONFIG_TRIM_UNUSED_KSYMS=y
+          {
+            echo "Source commit: $(git rev-parse HEAD)"
+            echo "Kernel version: $(make -s kernelversion)"
+            echo "Kernel release: $(cat out/include/config/kernel.release)"
+            echo "Compiler: $(clang --version | head -n 1)"
+            echo "module_layout CRC: pending build"
+            echo "KSU config: absent"
+            echo "Installer: none; this is an ABI probe only"
+          } > "$GITHUB_WORKSPACE/build-output/abi-report.txt"
+
+      - name: Apply the R10 builder's compiler compatibility flags
+        working-directory: kernel
+        run: |
+          set -euo pipefail
+          printf '%s\n' \
+            'KBUILD_CFLAGS += -Wno-default-const-init-unsafe' \
+            'KBUILD_CFLAGS += -Wno-uninitialized-const-pointer' \
+            'KBUILD_CFLAGS += -Wno-implicit-function-declaration' \
+            'KBUILD_CFLAGS += -Wno-sometimes-uninitialized' >> Makefile
+
+      - name: Compile kernel and modules
+        working-directory: kernel
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/cirrus-clang/bin:$PATH"
+          make -j4 O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld Image.gz modules
+
+          test -s out/Module.symvers
+          test -s out/arch/arm64/boot/Image.gz
+          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/"
+          cp out/Module.symvers "$GITHUB_WORKSPACE/build-output/Module.symvers"
+          crc="$(awk '$2 == "module_layout" {print $1}' out/Module.symvers)"
+          {
+            echo "module_layout CRC: $crc"
+            if [ "$crc" = "0x0222dd63" ]; then
+              echo "module_layout comparison: MATCHES ProjectRYU stock modules"
+            else
+              echo "module_layout comparison: DOES NOT MATCH ProjectRYU stock modules (expected 0x0222dd63)"
+            fi
+          } >> "$GITHUB_WORKSPACE/build-output/abi-report.txt"
+
+          make O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld \
+            INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
+          release="$(cat out/include/config/kernel.release)"
+          depmod -b "$GITHUB_WORKSPACE/staging" "$release"
+          cp -a "$GITHUB_WORKSPACE/staging/lib/modules" "$GITHUB_WORKSPACE/build-output/"
+
+      - name: Upload ABI probe outputs (not flashable)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Roains-Nethunter-Sapphire-Zepharo-R10-ABI-probe
+          path: build-output/
+          if-no-files-found: error
+          retention-days: 14 out/.config
+
+          {
+            echo "Source commit: $(git rev-parse HEAD)"
+            echo "Kernel version: $(make -s kernelversion)"
+            echo "Kernel release: $(cat out/include/config/kernel.release)"
+            echo "Compiler: $(clang --version | head -n 1)"
+            echo "module_layout CRC: pending build"
+            echo "KSU config: absent"
+            echo "Installer: none; this is an ABI probe only"
+          } > "$GITHUB_WORKSPACE/build-output/abi-report.txt"
+
+      - name: Apply the R10 builder's compiler compatibility flags
+        working-directory: kernel
+        run: | out/.config
+          ! grep -q '^CONFIG_TRIM_UNUSED_KSYMS=y          { out/.config
+          ! grep -q '^CONFIG_TRIM_UNUSED_KSYMS=y
+            echo "Source commit: $(git rev-parse HEAD)"
+            echo "Kernel version: $(make -s kernelversion)"
+            echo "Kernel release: $(cat out/include/config/kernel.release)"
+            echo "Compiler: $(clang --version | head -n 1)"
+            echo "module_layout CRC: pending build"
+            echo "KSU config: absent"
+            echo "Unused symbol trimming: disabled; MODVERSIONS remains enabled"
+            echo "Installer: none; this is an ABI probe only"
+          } > "$GITHUB_WORKSPACE/build-output/abi-report.txt"
+
+      - name: Apply the R10 builder's compiler compatibility flags
+        working-directory: kernel
+        run: |
+          set -euo pipefail
+          printf '%s\n' \
+            'KBUILD_CFLAGS += -Wno-default-const-init-unsafe' \
+            'KBUILD_CFLAGS += -Wno-uninitialized-const-pointer' \
+            'KBUILD_CFLAGS += -Wno-implicit-function-declaration' \
+            'KBUILD_CFLAGS += -Wno-sometimes-uninitialized' >> Makefile
+
+      - name: Compile kernel and modules
+        working-directory: kernel
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/cirrus-clang/bin:$PATH"
+          make -j4 O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld Image.gz modules
+
+          test -s out/Module.symvers
+          test -s out/arch/arm64/boot/Image.gz
+          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/"
+          cp out/Module.symvers "$GITHUB_WORKSPACE/build-output/Module.symvers"
+          crc="$(awk '$2 == "module_layout" {print $1}' out/Module.symvers)"
+          {
+            echo "module_layout CRC: $crc"
+            if [ "$crc" = "0x0222dd63" ]; then
+              echo "module_layout comparison: MATCHES ProjectRYU stock modules"
+            else
+              echo "module_layout comparison: DOES NOT MATCH ProjectRYU stock modules (expected 0x0222dd63)"
+            fi
+          } >> "$GITHUB_WORKSPACE/build-output/abi-report.txt"
+
+          make O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld \
+            INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
+          release="$(cat out/include/config/kernel.release)"
+          depmod -b "$GITHUB_WORKSPACE/staging" "$release"
+          cp -a "$GITHUB_WORKSPACE/staging/lib/modules" "$GITHUB_WORKSPACE/build-output/"
+
+      - name: Upload ABI probe outputs (not flashable)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Roains-Nethunter-Sapphire-Zepharo-R10-ABI-probe
+          path: build-output/
+          if-no-files-found: error
+          retention-days: 14 out/.config
+          ! grep -q '^CONFIG_TRIM_UNUSED_KSYMS=y
+          {
+            echo "Source commit: $(git rev-parse HEAD)"
+            echo "Kernel version: $(make -s kernelversion)"
+            echo "Kernel release: $(cat out/include/config/kernel.release)"
+            echo "Compiler: $(clang --version | head -n 1)"
+            echo "module_layout CRC: pending build"
+            echo "KSU config: absent"
+            echo "Installer: none; this is an ABI probe only"
+          } > "$GITHUB_WORKSPACE/build-output/abi-report.txt"
+
+      - name: Apply the R10 builder's compiler compatibility flags
+        working-directory: kernel
+        run: |
+          set -euo pipefail
+          printf '%s\n' \
+            'KBUILD_CFLAGS += -Wno-default-const-init-unsafe' \
+            'KBUILD_CFLAGS += -Wno-uninitialized-const-pointer' \
+            'KBUILD_CFLAGS += -Wno-implicit-function-declaration' \
+            'KBUILD_CFLAGS += -Wno-sometimes-uninitialized' >> Makefile
+
+      - name: Compile kernel and modules
+        working-directory: kernel
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/cirrus-clang/bin:$PATH"
+          make -j4 O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld Image.gz modules
+
+          test -s out/Module.symvers
+          test -s out/arch/arm64/boot/Image.gz
+          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/"
+          cp out/Module.symvers "$GITHUB_WORKSPACE/build-output/Module.symvers"
+          crc="$(awk '$2 == "module_layout" {print $1}' out/Module.symvers)"
+          {
+            echo "module_layout CRC: $crc"
+            if [ "$crc" = "0x0222dd63" ]; then
+              echo "module_layout comparison: MATCHES ProjectRYU stock modules"
+            else
+              echo "module_layout comparison: DOES NOT MATCH ProjectRYU stock modules (expected 0x0222dd63)"
+            fi
+          } >> "$GITHUB_WORKSPACE/build-output/abi-report.txt"
+
+          make O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld \
+            INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
+          release="$(cat out/include/config/kernel.release)"
+          depmod -b "$GITHUB_WORKSPACE/staging" "$release"
+          cp -a "$GITHUB_WORKSPACE/staging/lib/modules" "$GITHUB_WORKSPACE/build-output/"
+
+      - name: Upload ABI probe outputs (not flashable)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Roains-Nethunter-Sapphire-Zepharo-R10-ABI-probe
+          path: build-output/
+          if-no-files-found: error
+          retention-days: 14 out/.config
+
+          {
+            echo "Source commit: $(git rev-parse HEAD)"
+            echo "Kernel version: $(make -s kernelversion)"
+            echo "Kernel release: $(cat out/include/config/kernel.release)"
+            echo "Compiler: $(clang --version | head -n 1)"
+            echo "module_layout CRC: pending build"
+            echo "KSU config: absent"
+            echo "Installer: none; this is an ABI probe only"
+          } > "$GITHUB_WORKSPACE/build-output/abi-report.txt"
+
+      - name: Apply the R10 builder's compiler compatibility flags
+        working-directory: kernel
+        run: | out/.config
+          ! grep -q '^CONFIG_TRIM_UNUSED_KSYMS=y          { out/.config
+
+          {
             echo "Source commit: $(git rev-parse HEAD)"
             echo "Kernel version: $(make -s kernelversion)"
             echo "Kernel release: $(cat out/include/config/kernel.release)"
@@ -258,250 +509,3 @@ jobs:
         working-directory: kernel
         run: | out/.config
           ! grep -q '^CONFIG_TRIM_UNUSED_KSYMS=y          {
-            echo "Source commit: $(git rev-parse HEAD)"
-            echo "Kernel version: $(make -s kernelversion)"
-            echo "Kernel release: $(cat out/include/config/kernel.release)"
-            echo "Compiler: $(clang --version | head -n 1)"
-            echo "module_layout CRC: pending build"
-            echo "KSU config: absent"
-            echo "Unused symbol trimming: disabled; MODVERSIONS remains enabled"
-            echo "Installer: none; this is an ABI probe only"
-          } > "$GITHUB_WORKSPACE/build-output/abi-report.txt"
-
-      - name: Apply the R10 builder's compiler compatibility flags
-        working-directory: kernel
-        run: |
-          set -euo pipefail
-          printf '%s\n' \
-            'KBUILD_CFLAGS += -Wno-default-const-init-unsafe' \
-            'KBUILD_CFLAGS += -Wno-uninitialized-const-pointer' \
-            'KBUILD_CFLAGS += -Wno-implicit-function-declaration' \
-            'KBUILD_CFLAGS += -Wno-sometimes-uninitialized' >> Makefile
-
-      - name: Compile kernel and modules
-        working-directory: kernel
-        run: |
-          set -euo pipefail
-          export PATH="$RUNNER_TEMP/cirrus-clang/bin:$PATH"
-          make -j4 O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld Image.gz modules
-
-          test -s out/Module.symvers
-          test -s out/arch/arm64/boot/Image.gz
-          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/"
-          cp out/Module.symvers "$GITHUB_WORKSPACE/build-output/Module.symvers"
-          crc="$(awk '$2 == "module_layout" {print $1}' out/Module.symvers)"
-          {
-            echo "module_layout CRC: $crc"
-            if [ "$crc" = "0x0222dd63" ]; then
-              echo "module_layout comparison: MATCHES ProjectRYU stock modules"
-            else
-              echo "module_layout comparison: DOES NOT MATCH ProjectRYU stock modules (expected 0x0222dd63)"
-            fi
-          } >> "$GITHUB_WORKSPACE/build-output/abi-report.txt"
-
-          make O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld \
-            INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
-          release="$(cat out/include/config/kernel.release)"
-          depmod -b "$GITHUB_WORKSPACE/staging" "$release"
-          cp -a "$GITHUB_WORKSPACE/staging/lib/modules" "$GITHUB_WORKSPACE/build-output/"
-
-      - name: Upload ABI probe outputs (not flashable)
-        uses: actions/upload-artifact@v4
-        with:
-          name: Roains-Nethunter-Sapphire-Zepharo-R10-ABI-probe
-          path: build-output/
-          if-no-files-found: error
-          retention-days: 14 out/.config
-          ! grep -q '^CONFIG_TRIM_UNUSED_KSYMS=y
-          {
-            echo "Source commit: $(git rev-parse HEAD)"
-            echo "Kernel version: $(make -s kernelversion)"
-            echo "Kernel release: $(cat out/include/config/kernel.release)"
-            echo "Compiler: $(clang --version | head -n 1)"
-            echo "module_layout CRC: pending build"
-            echo "KSU config: absent"
-            echo "Installer: none; this is an ABI probe only"
-          } > "$GITHUB_WORKSPACE/build-output/abi-report.txt"
-
-      - name: Apply the R10 builder's compiler compatibility flags
-        working-directory: kernel
-        run: |
-          set -euo pipefail
-          printf '%s\n' \
-            'KBUILD_CFLAGS += -Wno-default-const-init-unsafe' \
-            'KBUILD_CFLAGS += -Wno-uninitialized-const-pointer' \
-            'KBUILD_CFLAGS += -Wno-implicit-function-declaration' \
-            'KBUILD_CFLAGS += -Wno-sometimes-uninitialized' >> Makefile
-
-      - name: Compile kernel and modules
-        working-directory: kernel
-        run: |
-          set -euo pipefail
-          export PATH="$RUNNER_TEMP/cirrus-clang/bin:$PATH"
-          make -j4 O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld Image.gz modules
-
-          test -s out/Module.symvers
-          test -s out/arch/arm64/boot/Image.gz
-          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/"
-          cp out/Module.symvers "$GITHUB_WORKSPACE/build-output/Module.symvers"
-          crc="$(awk '$2 == "module_layout" {print $1}' out/Module.symvers)"
-          {
-            echo "module_layout CRC: $crc"
-            if [ "$crc" = "0x0222dd63" ]; then
-              echo "module_layout comparison: MATCHES ProjectRYU stock modules"
-            else
-              echo "module_layout comparison: DOES NOT MATCH ProjectRYU stock modules (expected 0x0222dd63)"
-            fi
-          } >> "$GITHUB_WORKSPACE/build-output/abi-report.txt"
-
-          make O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld \
-            INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
-          release="$(cat out/include/config/kernel.release)"
-          depmod -b "$GITHUB_WORKSPACE/staging" "$release"
-          cp -a "$GITHUB_WORKSPACE/staging/lib/modules" "$GITHUB_WORKSPACE/build-output/"
-
-      - name: Upload ABI probe outputs (not flashable)
-        uses: actions/upload-artifact@v4
-        with:
-          name: Roains-Nethunter-Sapphire-Zepharo-R10-ABI-probe
-          path: build-output/
-          if-no-files-found: error
-          retention-days: 14 out/.config
-
-          {
-            echo "Source commit: $(git rev-parse HEAD)"
-            echo "Kernel version: $(make -s kernelversion)"
-            echo "Kernel release: $(cat out/include/config/kernel.release)"
-            echo "Compiler: $(clang --version | head -n 1)"
-            echo "module_layout CRC: pending build"
-            echo "KSU config: absent"
-            echo "Installer: none; this is an ABI probe only"
-          } > "$GITHUB_WORKSPACE/build-output/abi-report.txt"
-
-      - name: Apply the R10 builder's compiler compatibility flags
-        working-directory: kernel
-        run: | out/.config
-          {
-            echo "Source commit: $(git rev-parse HEAD)"
-            echo "Kernel version: $(make -s kernelversion)"
-            echo "Kernel release: $(cat out/include/config/kernel.release)"
-            echo "Compiler: $(clang --version | head -n 1)"
-            echo "module_layout CRC: pending build"
-            echo "KSU config: absent"
-            echo "Unused symbol trimming: disabled; MODVERSIONS remains enabled"
-            echo "Installer: none; this is an ABI probe only"
-          } > "$GITHUB_WORKSPACE/build-output/abi-report.txt"
-
-      - name: Apply the R10 builder's compiler compatibility flags
-        working-directory: kernel
-        run: |
-          set -euo pipefail
-          printf '%s\n' \
-            'KBUILD_CFLAGS += -Wno-default-const-init-unsafe' \
-            'KBUILD_CFLAGS += -Wno-uninitialized-const-pointer' \
-            'KBUILD_CFLAGS += -Wno-implicit-function-declaration' \
-            'KBUILD_CFLAGS += -Wno-sometimes-uninitialized' >> Makefile
-
-      - name: Compile kernel and modules
-        working-directory: kernel
-        run: |
-          set -euo pipefail
-          export PATH="$RUNNER_TEMP/cirrus-clang/bin:$PATH"
-          make -j4 O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld Image.gz modules
-
-          test -s out/Module.symvers
-          test -s out/arch/arm64/boot/Image.gz
-          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/"
-          cp out/Module.symvers "$GITHUB_WORKSPACE/build-output/Module.symvers"
-          crc="$(awk '$2 == "module_layout" {print $1}' out/Module.symvers)"
-          {
-            echo "module_layout CRC: $crc"
-            if [ "$crc" = "0x0222dd63" ]; then
-              echo "module_layout comparison: MATCHES ProjectRYU stock modules"
-            else
-              echo "module_layout comparison: DOES NOT MATCH ProjectRYU stock modules (expected 0x0222dd63)"
-            fi
-          } >> "$GITHUB_WORKSPACE/build-output/abi-report.txt"
-
-          make O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld \
-            INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
-          release="$(cat out/include/config/kernel.release)"
-          depmod -b "$GITHUB_WORKSPACE/staging" "$release"
-          cp -a "$GITHUB_WORKSPACE/staging/lib/modules" "$GITHUB_WORKSPACE/build-output/"
-
-      - name: Upload ABI probe outputs (not flashable)
-        uses: actions/upload-artifact@v4
-        with:
-          name: Roains-Nethunter-Sapphire-Zepharo-R10-ABI-probe
-          path: build-output/
-          if-no-files-found: error
-          retention-days: 14 out/.config
-          ! grep -q '^CONFIG_TRIM_UNUSED_KSYMS=y
-          {
-            echo "Source commit: $(git rev-parse HEAD)"
-            echo "Kernel version: $(make -s kernelversion)"
-            echo "Kernel release: $(cat out/include/config/kernel.release)"
-            echo "Compiler: $(clang --version | head -n 1)"
-            echo "module_layout CRC: pending build"
-            echo "KSU config: absent"
-            echo "Installer: none; this is an ABI probe only"
-          } > "$GITHUB_WORKSPACE/build-output/abi-report.txt"
-
-      - name: Apply the R10 builder's compiler compatibility flags
-        working-directory: kernel
-        run: |
-          set -euo pipefail
-          printf '%s\n' \
-            'KBUILD_CFLAGS += -Wno-default-const-init-unsafe' \
-            'KBUILD_CFLAGS += -Wno-uninitialized-const-pointer' \
-            'KBUILD_CFLAGS += -Wno-implicit-function-declaration' \
-            'KBUILD_CFLAGS += -Wno-sometimes-uninitialized' >> Makefile
-
-      - name: Compile kernel and modules
-        working-directory: kernel
-        run: |
-          set -euo pipefail
-          export PATH="$RUNNER_TEMP/cirrus-clang/bin:$PATH"
-          make -j4 O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld Image.gz modules
-
-          test -s out/Module.symvers
-          test -s out/arch/arm64/boot/Image.gz
-          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/build-output/"
-          cp out/Module.symvers "$GITHUB_WORKSPACE/build-output/Module.symvers"
-          crc="$(awk '$2 == "module_layout" {print $1}' out/Module.symvers)"
-          {
-            echo "module_layout CRC: $crc"
-            if [ "$crc" = "0x0222dd63" ]; then
-              echo "module_layout comparison: MATCHES ProjectRYU stock modules"
-            else
-              echo "module_layout comparison: DOES NOT MATCH ProjectRYU stock modules (expected 0x0222dd63)"
-            fi
-          } >> "$GITHUB_WORKSPACE/build-output/abi-report.txt"
-
-          make O=out ARCH=arm64 LLVM=1 LTO=thin CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- AR=llvm-ar CC=clang LD=ld.lld \
-            INSTALL_MOD_PATH="$GITHUB_WORKSPACE/staging" modules_install
-          release="$(cat out/include/config/kernel.release)"
-          depmod -b "$GITHUB_WORKSPACE/staging" "$release"
-          cp -a "$GITHUB_WORKSPACE/staging/lib/modules" "$GITHUB_WORKSPACE/build-output/"
-
-      - name: Upload ABI probe outputs (not flashable)
-        uses: actions/upload-artifact@v4
-        with:
-          name: Roains-Nethunter-Sapphire-Zepharo-R10-ABI-probe
-          path: build-output/
-          if-no-files-found: error
-          retention-days: 14 out/.config
-
-          {
-            echo "Source commit: $(git rev-parse HEAD)"
-            echo "Kernel version: $(make -s kernelversion)"
-            echo "Kernel release: $(cat out/include/config/kernel.release)"
-            echo "Compiler: $(clang --version | head -n 1)"
-            echo "module_layout CRC: pending build"
-            echo "KSU config: absent"
-            echo "Installer: none; this is an ABI probe only"
-          } > "$GITHUB_WORKSPACE/build-output/abi-report.txt"
-
-      - name: Apply the R10 builder's compiler compatibility flags
-        working-directory: kernel
-        run: |
