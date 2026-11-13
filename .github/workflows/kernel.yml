@@ -192,14 +192,14 @@ jobs:
           cp -a "$GITHUB_WORKSPACE/staging/lib/modules" "$GITHUB_WORKSPACE/build-output/"
           find out/arch/arm64/boot/dts -type f \( -name '*.dtb' -o -name '*.dtbo' \) -exec cp --parents {} "$GITHUB_WORKSPACE/build-output/" \;
 
-      - name: Upload verified non-KSU build outputs
+      - name: Upload compact build diagnostics only (no kernel payload ZIP)
         uses: actions/upload-artifact@v4
         with:
-          name: Roains-Nethunter-Sapphire-no-root
+          name: Roains-Nethunter-Sapphire-build-report
           path: |
-            build-output/
             final-kernel.config
             config-verification.txt
             patch-integration.txt
           if-no-files-found: error
-          retention-days: 14
+          compression-level: 9
+          retention-days: 7
