@@ -38,11 +38,21 @@ jobs:
 
       - name: Prepare swap
         run: |
-          sudo fallocate -l 16G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          set -euo pipefail
+          # GitHub-hosted Ubuntu runners may already have /swapfile enabled.
+          # Never resize or recreate an active swapfile.
+          if [ -n "$(swapon --noheadings --show=NAME)" ]; then
+            echo "Existing runner swap detected; reusing it."
+          else
+            SWAPFILE=/swapfile-nethunter
+            sudo fallocate -l 8G "$SWAPFILE"
+            sudo chmod 600 "$SWAPFILE"
+            sudo mkswap "$SWAPFILE"
+            sudo swapon "$SWAPFILE"
+          fi
+          swapon --show
           free -h
+          df -h /
 
       - name: Restore exact R9 kernel configuration
         run: |
