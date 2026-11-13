@@ -99,7 +99,7 @@ jobs:
       - name: Build kernel and modules with R9 toolchain settings
         run: |
           ROOT_DIR="$GITHUB_WORKSPACE" \
-          KERNEL_DIR="$GITHUB_WORKSPACE/common_gki/common" \
+          KERNEL_DIR="common_gki/common" \
           OUT_DIR="$GITHUB_WORKSPACE/out" \
           BUILD_CONFIG="$GITHUB_WORKSPACE/common_gki/common/build.config.gki.aarch64" \
           LTO=full build/build.sh
