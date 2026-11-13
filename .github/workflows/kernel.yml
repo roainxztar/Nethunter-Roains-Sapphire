@@ -74,6 +74,36 @@ jobs:
           test "$(git -C common_gki/common rev-parse HEAD)" = "c3405fe3912bf981aa5129a74410104140a25a93"
           test "$(make -s -C common_gki/common kernelversion)" = "5.15.211"
 
+      - name: Port RTL8XXXU drivers and embedded firmware for R9
+        run: |
+          set -euo pipefail
+          PORT_DIR="$RUNNER_TEMP/android-gki-wifi-injection"
+          git init "$PORT_DIR"
+          git -C "$PORT_DIR" remote add origin https://github.com/roainxztar/android-gki-wifi-injection.git
+          git -C "$PORT_DIR" fetch --depth=1 origin e17efc7e23eb89bbf90f1c6b04bcb8512a35d571
+          git -C "$PORT_DIR" checkout --detach FETCH_HEAD
+          test "$(git -C "$PORT_DIR" rev-parse HEAD)" = "e17efc7e23eb89bbf90f1c6b04bcb8512a35d571"
+          DEST="common_gki/common/drivers/net/wireless/realtek/rtl8xxxu"
+          SRC="$PORT_DIR/driver"
+          for file in Makefile rtl8xxxu.h rtl8xxxu_regs.h rtl8xxxu_core.c \
+                      rtl8xxxu_8188e.c rtl8xxxu_8188f.c rtl8xxxu_8192c.c \
+                      rtl8xxxu_8192e.c rtl8xxxu_8192f.c rtl8xxxu_8710b.c \
+                      rtl8xxxu_8723a.c rtl8xxxu_8723b.c rtl8188fufw_fw.h; do
+            test -s "$SRC/$file"
+          done
+          cp "$SRC"/rtl8xxxu.h "$SRC"/rtl8xxxu_regs.h "$SRC"/rtl8xxxu_core.c \
+             "$SRC"/rtl8xxxu_*.c "$SRC"/rtl8188fufw_fw.h "$DEST"/
+          cat > "$DEST/Makefile" <<'EOF'
+          # SPDX-License-Identifier: GPL-2.0-only
+          obj-$(CONFIG_RTL8XXXU) += rtl8xxxu.o
+          rtl8xxxu-y := rtl8xxxu_core.o rtl8xxxu_8192e.o rtl8xxxu_8723b.o \
+                        rtl8xxxu_8723a.o rtl8xxxu_8192c.o rtl8xxxu_8188f.o \
+                        rtl8xxxu_8188e.o rtl8xxxu_8710b.o rtl8xxxu_8192f.o
+          EOF
+          grep -q 'config RTL8XXXU' "$DEST/Kconfig"
+          grep -q 'rtl8188fufw_data' "$DEST/rtl8188fufw_fw.h"
+          echo "Ported RTL8XXXU source at upstream fork commit e17efc7e23eb89bbf90f1c6b04bcb8512a35d571"
+
       - name: Fetch Android Common build system and pinned Clang
         run: |
           repo init -u https://android.googlesource.com/kernel/manifest -b common-android13-5.15-lts --depth=1
@@ -128,7 +158,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .ccache
-          key: ccache-${{ runner.os }}-r9-5.15.211-${{ hashFiles('config/r9-kernel.config.gz.b64', 'scripts/configure_features.sh', 'patches/nethunter-mac80211-5.15.patch') }}
+          key: ccache-${{ runner.os }}-r9-5.15.211-${{ hashFiles('config/r9-kernel.config.gz.b64', 'scripts/configure_features.sh', 'scripts/port_rtl8xxxu.sh', 'patches/nethunter-mac80211-5.15.patch') }}
           restore-keys: |
             ccache-${{ runner.os }}-r9-5.15.211-
 
