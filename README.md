@@ -28,7 +28,7 @@ The workflow fetches the kernel source at an immutable commit:
 
 The workflow also uses the Android Common Kernel build system from the `common-android13-5.15-lts` manifest and pins Android Clang to `r450784e`.
 
-The starting point is the archived R9 configuration in `config/r9-kernel.config.gz.b64`. The build changes the LTO mode from the baseline's Full LTO to **ThinLTO** to reduce CI peak memory use. CFI and Shadow Call Stack are retained and checked in the generated configuration. The build uses two parallel jobs.
+The starting point is the archived R9 configuration in `config/r9-kernel.config.gz.b64`. The build preserves the baseline's **Full LTO** mode because changing LTO mode can alter module ABI CRCs. CFI and Shadow Call Stack are retained and checked in the generated configuration. The build uses one parallel job to limit peak memory use during the Full LTO link.
 
 The kernel local version is set to `-Nethunter-Roains-Sapphire`; automatic local version suffixing is disabled.
 
@@ -41,7 +41,7 @@ The R9 ABI baseline probe passed with an exact `module_layout` CRC match:
 
 This validates the baseline comparison only; it is not a final kernel build or proof that every vendor module is compatible.
 
-The full build has a separate ABI gate. It checks the candidate `Module.symvers`, the `module_layout` CRC, recorded R9 vendor imports, Qualcomm vendor WLAN imports, retained `cfg80211` exports and imports required by the newly built `mac80211.ko`. A successful compile by itself is insufficient. The workflow must stop before packaging if this ABI audit reports errors.
+The full build has a separate ABI gate. It checks the candidate `Module.symvers`, the `module_layout` CRC, recorded R9 vendor imports, Qualcomm vendor WLAN imports, retained `cfg80211` exports and imports required by the newly built `mac80211.ko`. Every recorded vendor import must resolve to a candidate kernel export or a recorded retained-module provider with the expected CRC; unresolved imports are fatal rather than informational. A successful compile by itself is insufficient. The workflow must stop before packaging if this ABI audit reports errors.
 
 The ROM-provided Qualcomm vendor Wi-Fi stack is preserved. The project does not blindly replace the ROM's `cfg80211.ko` or Qualcomm WLAN modules.
 
