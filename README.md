@@ -2,7 +2,7 @@
 
 A NetHunter-oriented kernel project for the Xiaomi Redmi Note 13 4G family, targeting the **Sapphire** device (Qualcomm SM6225 / Snapdragon 685, arm64).
 
-This repository is the R9 project line. **ChicKernel is not a project base, dependency, or identity.** The kernel source is pinned directly to the Zepharo R9 source revision documented below.
+This repository follows the pinned Zepharo R9 kernel source revision documented below.
 
 ## Project identity and target
 
