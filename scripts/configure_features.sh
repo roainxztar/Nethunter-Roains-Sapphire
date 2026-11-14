@@ -45,6 +45,10 @@ done
 "$CFG" --file "$DEFCONFIG" --enable NFSD_V3
 "$CFG" --file "$DEFCONFIG" --enable NFSD_V4
 
+# Expose the Realtek Kconfig subtree. The inherited R9 defconfig disables
+# WLAN_VENDOR_REALTEK, which hides RTL8XXXU and causes olddefconfig to drop it.
+"$CFG" --file "$DEFCONFIG" --enable WLAN_VENDOR_REALTEK
+
 # External Realtek USB Wi-Fi driver from the sapphire injection port.
 # Build rtl8xxxu as a module; retain the ROM-provided cfg80211 provider.
 "$CFG" --file "$DEFCONFIG" --module RTL8XXXU
