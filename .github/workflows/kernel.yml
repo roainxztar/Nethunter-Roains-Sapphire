@@ -279,6 +279,7 @@ jobs:
           require "# CONFIG_LOCALVERSION_AUTO is not set"
           require "CONFIG_CFG80211=m"
           require "CONFIG_MAC80211=m"
+          require "CONFIG_WLAN_VENDOR_REALTEK=y"
           require "CONFIG_RTL8XXXU=m"
           require "CONFIG_RTL8XXXU_UNTESTED=y"
           require "CONFIG_PID_NS=y"
