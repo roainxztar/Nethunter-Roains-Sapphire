@@ -55,6 +55,9 @@ done
 "$CFG" --file "$DEFCONFIG" --enable MEDIA_USB_SUPPORT
 "$CFG" --file "$DEFCONFIG" --enable MEDIA_SDR_SUPPORT
 "$CFG" --file "$DEFCONFIG" --enable MEDIA_DIGITAL_TV_SUPPORT
+# DVB_USB_RTL28XXU depends on I2C_MUX; enable its I2C prerequisite explicitly.
+"$CFG" --file "$DEFCONFIG" --enable I2C
+"$CFG" --file "$DEFCONFIG" --enable I2C_MUX
 "$CFG" --file "$DEFCONFIG" --module DVB_CORE
 "$CFG" --file "$DEFCONFIG" --module DVB_USB_V2
 "$CFG" --file "$DEFCONFIG" --module DVB_USB_RTL28XXU
