@@ -279,6 +279,8 @@ jobs:
           require "# CONFIG_LOCALVERSION_AUTO is not set"
           require "CONFIG_CFG80211=m"
           require "CONFIG_MAC80211=m"
+          require "CONFIG_RTL8XXXU=m"
+          require "CONFIG_RTL8XXXU_UNTESTED=y"
           require "CONFIG_PID_NS=y"
           require "CONFIG_USER_NS=y"
           require "CONFIG_IPC_NS=y"
@@ -316,35 +318,52 @@ jobs:
           cp "$MAC80211" diagnostics/mac80211.ko
           cp out/abi-report.txt diagnostics/
 
-      - name: Stage compact flashable ZIP
+      - name: Stage compact non-flashable kernel and modules ZIP
         run: |
           set -euo pipefail
-          mkdir -p package/META-INF/com/google/android package/modules package/tools
+          mkdir -p package/modules
           IMAGE="$(find out -type f -path '*/arch/arm64/boot/Image' | head -n1)"
-          cp "$IMAGE" package/Image
+          CONFIG="$(find out -type f -name .config | head -n1)"
+          SYMVERS="$(find out -type f -name Module.symvers | head -n1)"
+          test -s "$IMAGE" && test -s "$CONFIG" && test -s "$SYMVERS"
+          cp "$IMAGE" /tmp/Roains-Nethunter-Sapphire-Image
+          gzip -9 -n -c /tmp/Roains-Nethunter-Sapphire-Image > package/Image.gz
+          rm -f /tmp/Roains-Nethunter-Sapphire-Image
 
-          # Collect selected feature modules and their module dependencies.
+          # Collect only modules built by this exact kernel build. cfg80211.ko
+          # is deliberately omitted; the ROM vendor copy is retained.
           python3 scripts/package_modules.py out package/modules
           test -s package/modules/mac80211.ko
+          test -s package/modules/rtl8xxxu.ko
 
-          curl -fL --retry 3 -o /tmp/Magisk-v31.1.apk \
-            https://github.com/topjohnwu/Magisk/releases/download/v31.1/Magisk-v31.1.apk
-          ASSET="$(unzip -Z1 /tmp/Magisk-v31.1.apk | grep -E 'lib/arm64-v8a/libmagiskboot.so$' | head -n1)"
-          test -n "$ASSET"
-          unzip -p /tmp/Magisk-v31.1.apk "$ASSET" > package/tools/magiskboot
-          chmod 755 package/tools/magiskboot
+          cp "$CONFIG" package/kernel.config
+          cp "$SYMVERS" package/Module.symvers
+          cp out/abi-report.txt package/abi-report.txt
+          cat > package/BUILD-INFO.txt <<'EOF'
+          Roains-Nethunter-Sapphire
+          Target: Xiaomi Redmi Note 13 4G (sapphire)
+          Kernel: Linux 5.15.211
+          Kernel display name: Nethunter-Roains-Sapphire
+          Source: topnotchfreaks/kernel_msm-5.15
+          Source commit: c3405fe3912bf981aa5129a74410104140a25a93
+          ABI baseline module_layout CRC: 0x0222dd63
+          Package type: NON-FLASHABLE kernel and modules payload
+          Image.gz is the gzip-compressed ARM64 Image; decompress before tools
+          that require the raw Image. Modules match this build's kernel ABI.
+          cfg80211.ko is intentionally not included; retain the ROM vendor copy.
+          No recovery installer, boot image, DTBO, vendor_boot or partition image
+          is included. Do not flash this archive directly.
+          EOF
+          (cd package && sha256sum Image.gz kernel.config Module.symvers abi-report.txt modules/*.ko > SHA256SUMS)
+          (cd package && zip -9 -X -r "$GITHUB_WORKSPACE/Roains-Nethunter-Sapphire-5.15.211-kernel-modules.zip" .)
+          unzip -t "$GITHUB_WORKSPACE/Roains-Nethunter-Sapphire-5.15.211-kernel-modules.zip"
+          ls -lh "$GITHUB_WORKSPACE/Roains-Nethunter-Sapphire-5.15.211-kernel-modules.zip"
 
-          cp installer/update-binary package/META-INF/com/google/android/update-binary
-          cp installer/updater-script package/META-INF/com/google/android/updater-script
-          chmod 755 package/META-INF/com/google/android/update-binary
-          (cd package && zip -9 -X -r "$GITHUB_WORKSPACE/Roains-Nethunter-Sapphire-5.15.211.zip" .)
-          ls -lh "$GITHUB_WORKSPACE/Roains-Nethunter-Sapphire-5.15.211.zip"
-
-      - name: Upload flashable ZIP
+      - name: Upload compact kernel and modules ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: Roains-Nethunter-Sapphire-5.15.211
-          path: Roains-Nethunter-Sapphire-5.15.211.zip
+          name: Roains-Nethunter-Sapphire-5.15.211-kernel-modules
+          path: Roains-Nethunter-Sapphire-5.15.211-kernel-modules.zip
           if-no-files-found: error
           retention-days: 30
 
