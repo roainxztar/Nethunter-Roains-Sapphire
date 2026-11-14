@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
+      - main
       - build/r9-nethunter
     paths:
       - ".github/workflows/kernel.yml"
