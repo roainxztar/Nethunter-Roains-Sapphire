@@ -171,8 +171,8 @@ jobs:
           set -euo pipefail
           mkdir -p "$CCACHE_DIR"
           ccache -z
-          JOBS=2
-          echo "Compiling R9 with baseline Full LTO and $JOBS parallel jobs"
+          JOBS=1
+          echo "Compiling R9 with baseline Full LTO and $JOBS parallel job (memory-conservative)"
           (
             while sleep 30; do
               echo "=== Build memory snapshot: $(date -u +'%Y-%m-%dT%H:%M:%SZ') ==="
