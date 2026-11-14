@@ -122,7 +122,13 @@ jobs:
           grep -Fq '. ${ROOT_DIR}/${KERNEL_DIR}/build.config.gki' "$CFG"
           grep -qx 'DEFCONFIG=roains_nethunter_sapphire_defconfig' "$KERNEL/build.config.gki"
           test -s "$DEFCONFIG"
-          grep -q '^CONFIG_MODULES=y          echo "Build config chain verified: build.config.gki.aarch64 -> build.config.gki -> roains_nethunter_sapphire_defconfig"
+          grep -q '^CONFIG_MODULES=y$' "$DEFCONFIG"
+          grep -q '^CONFIG_CFI_CLANG=y$' "$DEFCONFIG"
+          grep -q '^CONFIG_SHADOW_CALL_STACK=y$' "$DEFCONFIG"
+          grep -q '^CONFIG_LTO_CLANG_FULL=y$' "$DEFCONFIG"
+          ! grep -q '^CONFIG_LTO_CLANG_THIN=y$' "$DEFCONFIG"
+          echo "Build config chain verified: build.config.gki.aarch64 -> build.config.gki -> roains_nethunter_sapphire_defconfig"
+       - name: Restore compiler cache
       - name: Restore compiler cache
         uses: actions/cache@v4
         with:
