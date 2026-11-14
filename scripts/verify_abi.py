@@ -88,6 +88,7 @@ def main():
                 errors.append(f"vendor-provider CRC mismatch: {module}:{name}")
         else:
             unresolved += 1
+            errors.append(f"Unresolved vendor import: {module}:{name} expected {expected:08x}")
 
     # Check QCA vendor WLAN imports against the candidate kernel and the
     # original ROM cfg80211 export table.
@@ -107,6 +108,7 @@ def main():
                 errors.append(f"QCA vendor-provider CRC mismatch: {name}")
         else:
             unresolved += 1
+            errors.append(f"Unresolved QCA vendor import: {module}:{name} expected {expected:08x}")
 
     # Check every symbol imported by the new mac80211.ko.
     new_imports = module_versions(a.module)
