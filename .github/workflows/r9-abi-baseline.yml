@@ -78,6 +78,12 @@ jobs:
           KERNEL="$GITHUB_WORKSPACE/common_gki/common"
           DEFCONFIG="$KERNEL/arch/arm64/configs/r9_abi_baseline_defconfig"
           cp /tmp/r9-baseline.config "$DEFCONFIG"
+          # This CI probe runs outside the original Android build server. Its saved
+          # config embeds that server's absolute ABI whitelist path. Disable only
+          # unused-symbol trimming for this diagnostic build; keep MODVERSIONS and
+          # all module CRC generation/verification enabled.
+          "$KERNEL/scripts/config" --file "$DEFCONFIG" -d TRIM_UNUSED_KSYMS
+          "$KERNEL/scripts/config" --file "$DEFCONFIG" -u UNUSED_KSYMS_WHITELIST
           sed -i 's/^DEFCONFIG=.*/DEFCONFIG=r9_abi_baseline_defconfig/' "$KERNEL/build.config.gki"
           sed -i '/POST_DEFCONFIG_CMDS=/d' "$KERNEL/build.config.gki"
           echo 'POST_DEFCONFIG_CMDS=""' >> "$KERNEL/build.config.gki"
@@ -100,7 +106,7 @@ jobs:
           grep -qx 'DEFCONFIG=r9_abi_baseline_defconfig' "$KERNEL/build.config.gki"
           grep -qx 'CONFIG_LTO_CLANG_FULL=y' "$DEFCONFIG"
           ! grep -qx 'CONFIG_LTO_CLANG_THIN=y' "$DEFCONFIG"
-          echo "Baseline config preserved; no NetHunter feature script, LTO conversion, RTL8XXXU overlay or mac80211 patch is applied."
+          echo "Baseline diagnostic: original config retained except server-bound unused-symbol whitelist trimming; MODVERSIONS and Full LTO remain enabled. No NetHunter feature script, LTO conversion, RTL8XXXU overlay or mac80211 patch is applied."
 
       - name: Build untouched R9 baseline
         env:
