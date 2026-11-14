@@ -237,6 +237,28 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
+      - name: Audit ABI-affecting config changes against R9 baseline
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostics
+          KERNEL="$GITHUB_WORKSPACE/common_gki/common"
+          CONFIG="$(find out -name .config -type f | head -n1 || true)"
+          if [ -n "$CONFIG" ] && [ -s "$CONFIG" ]; then
+            "$KERNEL/scripts/diffconfig" /tmp/r9-kernel.config "$CONFIG" > diagnostics/r9-config-diff.txt || true
+            echo "=== R9 baseline -> final config differences ==="
+            cat diagnostics/r9-config-diff.txt
+            echo "=== ABI-sensitive config values (baseline / final) ==="
+            for opt in MODULES MODVERSIONS MODULE_UNLOAD MODULE_FORCE_UNLOAD MODULE_SIG MODULE_SIG_PROTECT MODULES_TREE_LOOKUP CFI_CLANG CFI_CLANG_SHADOW SHADOW_CALL_STACK LTO_CLANG_FULL LTO_CLANG_THIN RANDSTRUCT GCC_PLUGIN_RANDSTRUCT MODULE_REL_CRCS; do
+              printf "%-28s baseline=" "$opt"
+              grep -E "^(CONFIG_${opt}=|# CONFIG_${opt} is not set)" /tmp/r9-kernel.config | tail -n1 || true
+              printf "%-28s final=" "$opt"
+              grep -E "^(CONFIG_${opt}=|# CONFIG_${opt} is not set)" "$CONFIG" | tail -n1 || true
+            done
+          else
+            echo "No generated .config available for baseline diff."
+          fi
+
       - name: Verify final config and module ABI
         run: |
           set -euo pipefail
