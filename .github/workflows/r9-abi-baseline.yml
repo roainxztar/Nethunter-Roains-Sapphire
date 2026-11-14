@@ -1,0 +1,151 @@
+name: R9 ABI Baseline Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - build/r9-nethunter
+    paths:
+      - ".github/workflows/r9-abi-baseline.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: roains-r9-abi-baseline-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  baseline:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y repo rsync aria2 bc bison flex build-essential \
+            libelf-dev libssl-dev python3 zip unzip kmod dwarves cpio \
+            device-tree-compiler libncurses-dev lz4 binutils ccache
+
+      - name: Prepare build swap
+        run: |
+          set -euo pipefail
+          SWAPFILE=/swapfile-r9-baseline
+          sudo fallocate -l 12G "$SWAPFILE"
+          sudo chmod 600 "$SWAPFILE"
+          sudo mkswap "$SWAPFILE"
+          sudo swapon "$SWAPFILE"
+          free -h
+          swapon --show
+
+      - name: Restore untouched R9 baseline configuration
+        run: |
+          set -euo pipefail
+          base64 -d config/r9-kernel.config.gz.b64 | gzip -dc > /tmp/r9-baseline.config
+          test -s /tmp/r9-baseline.config
+          grep -qx 'CONFIG_MODULES=y' /tmp/r9-baseline.config
+          grep -qx 'CONFIG_MODVERSIONS=y' /tmp/r9-baseline.config
+          grep -qx 'CONFIG_LTO_CLANG_FULL=y' /tmp/r9-baseline.config
+          ! grep -qx 'CONFIG_LTO_CLANG_THIN=y' /tmp/r9-baseline.config
+          grep -qx 'CONFIG_CFI_CLANG=y' /tmp/r9-baseline.config
+          grep -qx 'CONFIG_SHADOW_CALL_STACK=y' /tmp/r9-baseline.config
+          sha256sum /tmp/r9-baseline.config | tee baseline-config.sha256
+
+      - name: Fetch exact Zepharo R9 source
+        run: |
+          set -euo pipefail
+          mkdir -p common_gki/common
+          git -C common_gki/common init
+          git -C common_gki/common remote add origin https://github.com/topnotchfreaks/kernel_msm-5.15.git
+          git -C common_gki/common fetch --depth=1 origin c3405fe3912bf981aa5129a74410104140a25a93
+          git -C common_gki/common checkout --detach FETCH_HEAD
+          test "$(git -C common_gki/common rev-parse HEAD)" = "c3405fe3912bf981aa5129a74410104140a25a93"
+          test "$(make -s -C common_gki/common kernelversion)" = "5.15.211"
+
+      - name: Fetch pinned Android Common build system and Clang
+        run: |
+          set -euo pipefail
+          repo init -u https://android.googlesource.com/kernel/manifest -b common-android13-5.15-lts --depth=1
+          repo sync --optimized-fetch --prune --no-clone-bundle --no-tags -j"$(nproc)"
+          rm -rf .repo common
+
+      - name: Configure only the original R9 baseline
+        run: |
+          set -euo pipefail
+          KERNEL="$GITHUB_WORKSPACE/common_gki/common"
+          DEFCONFIG="$KERNEL/arch/arm64/configs/r9_abi_baseline_defconfig"
+          cp /tmp/r9-baseline.config "$DEFCONFIG"
+          sed -i 's/^DEFCONFIG=.*/DEFCONFIG=r9_abi_baseline_defconfig/' "$KERNEL/build.config.gki"
+          sed -i '/POST_DEFCONFIG_CMDS=/d' "$KERNEL/build.config.gki"
+          echo 'POST_DEFCONFIG_CMDS=""' >> "$KERNEL/build.config.gki"
+
+          CFG="$KERNEL/build.config.gki.aarch64"
+          sed -i '/^KMI_SYMBOL_LIST_STRICT_MODE=/d; /^TRIM_NONLISTED_KMI=/d; /^KMI_ENFORCED=/d; /^MODULES_ORDER=/d; /^MODULES_LIST=/d' "$CFG"
+          cat >> "$CFG" <<'EOF'
+          KMI_SYMBOL_LIST_STRICT_MODE=0
+          TRIM_NONLISTED_KMI=0
+          KMI_ENFORCED=0
+          MAKE_GOALS="${MAKE_GOALS} Image modules"
+          EOF
+
+          sed -i '/^BRANCH=/d; /^CLANG_VERSION=/d' "$KERNEL/build.config.constants"
+          cat >> "$KERNEL/build.config.constants" <<'EOF'
+          BRANCH=android13-5.15
+          CLANG_VERSION=r450784e
+          EOF
+
+          grep -qx 'DEFCONFIG=r9_abi_baseline_defconfig' "$KERNEL/build.config.gki"
+          grep -qx 'CONFIG_LTO_CLANG_FULL=y' "$DEFCONFIG"
+          ! grep -qx 'CONFIG_LTO_CLANG_THIN=y' "$DEFCONFIG"
+          echo "Baseline config preserved; no NetHunter feature script, LTO conversion, RTL8XXXU overlay or mac80211 patch is applied."
+
+      - name: Build untouched R9 baseline
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
+          CCACHE_COMPILERCHECK: content
+          CCACHE_MAXSIZE: 5G
+          CCACHE_BASEDIR: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$CCACHE_DIR"
+          ccache -z
+          ROOT_DIR="$GITHUB_WORKSPACE" \
+          KERNEL_DIR="common_gki/common" \
+          OUT_DIR="$GITHUB_WORKSPACE/out-baseline" \
+          BUILD_CONFIG="common_gki/common/build.config.gki.aarch64" \
+          CC="ccache clang" LTO=full build/build.sh -j1
+          ccache -s
+
+      - name: Audit baseline module ABI
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostics
+          CONFIG="$(find out-baseline -type f -name .config -print -quit)"
+          SYMVERS="$(find out-baseline -type f -name Module.symvers -print -quit)"
+          IMAGE="$(find out-baseline -type f -path '*/arch/arm64/boot/Image' -print -quit)"
+          test -s "$CONFIG" && test -s "$SYMVERS" && test -s "$IMAGE"
+          cp "$CONFIG" diagnostics/baseline.config
+          cp "$SYMVERS" diagnostics/baseline.Module.symvers
+          cp "$IMAGE" diagnostics/baseline.Image
+
+          ACTUAL="$(awk '$2=="module_layout" {print $1}' "$SYMVERS" | sort -u)"
+          printf 'Expected R9 module_layout CRC: 0x0222dd63\nActual baseline module_layout CRC(s):\n%s\n' "$ACTUAL" | tee diagnostics/module-layout.txt
+          if ! printf '%s\n' "$ACTUAL" | grep -qi '^0x0*222dd63$'; then
+            echo "Baseline does not reproduce the recorded R9 module_layout CRC." | tee -a diagnostics/module-layout.txt
+            exit 1
+          fi
+          echo "Untouched R9 baseline reproduces the expected module_layout CRC."
+
+      - name: Upload R9 ABI baseline diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Roains-R9-ABI-Baseline-Probe
+          path: |
+            diagnostics/
+            baseline-config.sha256
+          if-no-files-found: ignore
+          retention-days: 30
