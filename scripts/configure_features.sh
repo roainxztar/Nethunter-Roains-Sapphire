@@ -21,6 +21,9 @@ test -x "$CFG" || chmod +x "$CFG"
 "$CFG" --file "$DEFCONFIG" --module MAC80211
 
 # Container / Docker foundations missing from the original R9 configuration.
+# IPC_NS depends on SYSVIPC or POSIX_MQUEUE in this 5.15 tree. Enable
+# SYSVIPC first so the requested IPC namespace survives olddefconfig.
+"$CFG" --file "$DEFCONFIG" --enable SYSVIPC
 for opt in PID_NS USER_NS IPC_NS CGROUP_PIDS CGROUP_DEVICE; do
   "$CFG" --file "$DEFCONFIG" --enable "$opt"
 done
