@@ -20,7 +20,7 @@ permissions:
 
 concurrency:
   group: roains-nethunter-sapphire-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -44,13 +44,15 @@ jobs:
           SWAPFILE=/swapfile-nethunter
           if ! swapon --noheadings --show=NAME | grep -Fxq "$SWAPFILE"; then
             if [ ! -e "$SWAPFILE" ]; then
-              sudo fallocate -l 8G "$SWAPFILE"
+              sudo fallocate -l 32G "$SWAPFILE"
               sudo chmod 600 "$SWAPFILE"
               sudo mkswap "$SWAPFILE"
             fi
             sudo swapon "$SWAPFILE"
           fi
           swapon --show
+          # Favor swap under the memory-heavy Full LTO vmlinux link instead of OOM-killing the runner.
+          sudo sysctl -w vm.swappiness=100
           free -h
           df -h /
 
