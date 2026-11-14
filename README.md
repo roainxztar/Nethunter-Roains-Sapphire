@@ -86,30 +86,26 @@ These options do not guarantee peripheral operation. CAN interfaces, NFS service
 
 ## Build outputs
 
-After all compile, final-config and ABI checks pass, the workflow stages a compact ZIP containing:
+After compilation, final-config checks and ABI verification pass, the workflow creates one compact **non-flashable** ZIP:
 
-- The built kernel `Image`.
-- `mac80211.ko` and selected feature modules/dependencies that were built.
-- Module dependency/load additions.
-- The custom recovery installer and its `magiskboot` helper.
+`Roains-Nethunter-Sapphire-5.15.211-kernel-modules.zip`
 
-GitHub Actions also uploads the final configuration, `Module.symvers`, ABI report and diagnostics. The flashable artifact is named `Roains-Nethunter-Sapphire-5.15.211.zip`.
+It contains:
 
-A workflow artifact is produced only if its required stages succeed. The ABI baseline probe artifact is diagnostic-only and does **not** contain the final kernel modules or flashable ZIP.
+- `Image.gz`: gzip-compressed ARM64 kernel Image.
+- `modules/`: `mac80211.ko`, `rtl8xxxu.ko` and selected feature modules/dependencies actually produced by this build.
+- `kernel.config` and `Module.symvers`.
+- ABI audit report, module dependency/load additions, build information and SHA-256 checksums.
 
-## Installer and flashing caution
+The workflow requires both `mac80211.ko` and `rtl8xxxu.ko`; it must not silently publish a payload missing either. Optional CAN, NFS and SDR modules are included only when the kernel build produces them. The ROM's `cfg80211.ko` is intentionally excluded so the existing Qualcomm vendor Wi-Fi provider is retained.
 
-The project uses its own recovery installer in `installer/`; it does **not** use AnyKernel or AnyKernel3.
+The archive is a kernel-and-modules payload for inspection and later installer integration. It is **not flashable**: it contains no recovery installer, boot image, DTBO, vendor_boot or partition image. Do not flash or install it directly. The earlier ABI baseline probe artifact is diagnostic-only and is not the full kernel/modules payload.
 
-The installer is designed to:
+## Installer work is intentionally deferred
 
-1. Check for a Sapphire/Sapphiren device codename.
-2. Require the ROM's vendor module directory, `modules.dep`, `modules.load` and existing `cfg80211.ko`.
-3. Back up the active boot partition and relevant module files/metadata to `/sdcard/Roains-Nethunter-Backup`.
-4. Unpack the current boot image with `magiskboot`, replace the kernel payload and repack it.
-5. Add selected modules and module metadata while retaining the ROM's existing `cfg80211.ko`.
+The next phase will build and test the project's own recovery installer separately. It will be added to the workflow only after the payload is validated and the device-specific boot and module layout has been confirmed. Any installer must be tested on the actual Sapphire device and ROM before being called flashable.
 
-**The installer is experimental and is not declared production-ready.** Its recovery compatibility, module-directory assumptions, partition/slot handling, boot repacking and rollback behavior must be tested on the actual device and ROM before flashing. Keep a known-good boot image and a working recovery route. Do not flash a ZIP solely because it was uploaded as a CI artifact.
+The installer design must account for the real boot header and ramdisk, active slot, vendor/vendor_dlkm/system_dlkm placement, module dependency metadata, partition mount behavior, backup and rollback. The current experimental installer is not included in this build and is not approved for flashing.
 
 ## Compatibility and validation policy
 
