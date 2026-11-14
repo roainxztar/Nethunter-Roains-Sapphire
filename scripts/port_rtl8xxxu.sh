@@ -14,6 +14,47 @@ test "$(git -C "$TMP/src" rev-parse HEAD)" = "$PIN"
 SRC="$TMP/src/driver"
 DEST="$KERNEL/drivers/net/wireless/realtek/rtl8xxxu"
 test -f "$DEST/Kconfig"
+
+# RTL8XXXU_UNTESTED is a bool used by the driver at compile time. A plain
+# "depends on RTL8XXXU" becomes tristate m when RTL8XXXU=m, which prevents
+# the bool from being enabled. Permit the bool whenever the driver is built
+# in or as a module, but not when the driver is disabled.
+grep -qE '^[[:space:]]*depends on RTL8XXXU rtl8xxxu_regs.h rtl8xxxu_core.c rtl8188fufw_fw.h \
+            rtl8xxxu_8188e.c rtl8xxxu_8188f.c rtl8xxxu_8192c.c \
+            rtl8xxxu_8192e.c rtl8xxxu_8192f.c rtl8xxxu_8710b.c \
+            rtl8xxxu_8723a.c rtl8xxxu_8723b.c; do
+    test -s "$SRC/$file"
+    install -m 0644 "$SRC/$file" "$DEST/$file"
+done
+cat > "$DEST/Makefile" <<'EOF'
+# SPDX-License-Identifier: GPL-2.0-only
+obj-$(CONFIG_RTL8XXXU) += rtl8xxxu.o
+rtl8xxxu-y := rtl8xxxu_core.o rtl8xxxu_8192e.o rtl8xxxu_8723b.o \
+              rtl8xxxu_8723a.o rtl8xxxu_8192c.o rtl8xxxu_8188f.o \
+              rtl8xxxu_8188e.o rtl8xxxu_8710b.o rtl8xxxu_8192f.o
+EOF
+grep -q 'rtl8188fufw_data' "$DEST/rtl8188fufw_fw.h"
+echo "RTL8XXXU port applied from $PIN"
+ "$DEST/Kconfig"
+sed -i 's/^\([[:space:]]*depends on \)RTL8XXXU$/\1RTL8XXXU != n/' "$DEST/Kconfig"
+grep -qE '^[[:space:]]*depends on RTL8XXXU != n rtl8xxxu_regs.h rtl8xxxu_core.c rtl8188fufw_fw.h \
+            rtl8xxxu_8188e.c rtl8xxxu_8188f.c rtl8xxxu_8192c.c \
+            rtl8xxxu_8192e.c rtl8xxxu_8192f.c rtl8xxxu_8710b.c \
+            rtl8xxxu_8723a.c rtl8xxxu_8723b.c; do
+    test -s "$SRC/$file"
+    install -m 0644 "$SRC/$file" "$DEST/$file"
+done
+cat > "$DEST/Makefile" <<'EOF'
+# SPDX-License-Identifier: GPL-2.0-only
+obj-$(CONFIG_RTL8XXXU) += rtl8xxxu.o
+rtl8xxxu-y := rtl8xxxu_core.o rtl8xxxu_8192e.o rtl8xxxu_8723b.o \
+              rtl8xxxu_8723a.o rtl8xxxu_8192c.o rtl8xxxu_8188f.o \
+              rtl8xxxu_8188e.o rtl8xxxu_8710b.o rtl8xxxu_8192f.o
+EOF
+grep -q 'rtl8188fufw_data' "$DEST/rtl8188fufw_fw.h"
+echo "RTL8XXXU port applied from $PIN"
+ "$DEST/Kconfig"
+
 for file in rtl8xxxu.h rtl8xxxu_regs.h rtl8xxxu_core.c rtl8188fufw_fw.h \
             rtl8xxxu_8188e.c rtl8xxxu_8188f.c rtl8xxxu_8192c.c \
             rtl8xxxu_8192e.c rtl8xxxu_8192f.c rtl8xxxu_8710b.c \
